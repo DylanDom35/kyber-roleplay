@@ -1,0 +1,36 @@
+# Garry's Mod specific
+*.cache
+*.db
+data/
+logs/
+
+# Lua compiled files
+*.luac
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Backup files
+*~
+*.bak
+*.backup
+
+# Test files
+test/
+tests/
+
+# Temporary files
+*.tmp
+*.temp

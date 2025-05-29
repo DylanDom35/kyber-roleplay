@@ -1,0 +1,6 @@
+include("modules/character/sheet.lua")
+include("modules/onboarding/spawn.lua")
+include("modules/spawn/loadout.lua")
+include("modules/admin/panel.lua")
+include("modules/playerdata/core.lua")
+include("modules/chat/custom.lua")

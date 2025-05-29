@@ -1,0 +1,10 @@
+"Kyber RP"
+{
+    "base"        "sandbox"
+    "title"       "Kyber: SWRolePlay"
+    "version"     "1.0"
+    "author_name" "Dylan Dominguez"
+    "author_email" "your@email.com"
+    "menusystem"  "1"
+    "info"        "A lore-respectful Star Wars RP experience with deep character building and creative sandbox freedom. No DarkRP jobs—just your story."
+}
