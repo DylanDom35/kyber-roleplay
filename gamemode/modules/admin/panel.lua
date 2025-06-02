@@ -7,7 +7,7 @@ if SERVER then
     util.AddNetworkString("Kyber_AdminPanel_Demote")
 
     concommand.Add("kyber_adminmenu", function(ply)
-        if not ply:IsAdmin() then return end
+        if not KYBER.Admin or not KYBER.Admin:IsAdmin(ply) then return end
         net.Start("Kyber_AdminPanel_Open")
         net.Send(ply)
     end)
@@ -26,7 +26,7 @@ if SERVER then
     end)
 
     net.Receive("Kyber_AdminPanel_SetFaction", function(len, ply)
-        if not ply:IsAdmin() then return end
+        if not KYBER.Admin or not KYBER.Admin:IsAdmin(ply) then return end
         local target = net.ReadEntity()
         local factionID = net.ReadString()
         if KYBER.Factions[factionID] and IsValid(target) then
