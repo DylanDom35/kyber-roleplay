@@ -52,17 +52,20 @@ KYBER.Factions = {
 -- Utility function to set faction
 function KYBER:SetFaction(ply, factionID)
     if not IsValid(ply) then return end
-    
-    local faction = self.Factions[factionID]
+
+    local faction = self.Factions and self.Factions[factionID]
     if faction then
         ply:SetNWString("kyber_faction", factionID)
         ply:SetNWString("kyber_rank", faction.ranks[1]) -- Set to lowest rank
-        
+
         if SERVER then
             ply:ChatPrint("You joined the " .. faction.name)
         end
     else
         ply:SetNWString("kyber_faction", "")
         ply:SetNWString("kyber_rank", "")
+        if SERVER then
+            ply:ChatPrint("Faction not found or invalid.")
+        end
     end
 end

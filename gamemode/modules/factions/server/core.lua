@@ -1,3 +1,4 @@
+
 if SERVER then
 
 concommand.Add("kyber_promote", function(ply, cmd, args)
@@ -25,12 +26,8 @@ end)
     util.AddNetworkString("Kyber_OpenFactionMenu")
     util.AddNetworkString("Kyber_RequestJoinFaction")
 
-    function KYBER:SetFaction(ply, factionID)
-        if not KYBER.Factions[factionID] then return end
-
-        ply:SetNWString("kyber_faction", factionID)
-        ply:SetNWString("kyber_rank", KYBER.Factions[factionID].ranks[1]) -- default rank
-    end
+    -- Removed duplicate KYBER:SetFaction definition.
+    -- Now using the shared version from gamemode/shared.lua.
 
     net.Receive("Kyber_RequestJoinFaction", function(len, ply)
         local factionID = net.ReadString()
@@ -41,7 +38,7 @@ else
     net.Receive("Kyber_OpenFactionMenu", function()
         Kyber_OpenFactionMenu()
     end)
-	
+		
 
 function KYBER:Promote(ply)
     local factionID = ply:GetNWString("kyber_faction", "")
