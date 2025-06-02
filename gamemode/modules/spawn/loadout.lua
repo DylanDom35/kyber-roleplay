@@ -1,3 +1,8 @@
+-- kyber/gamemode/modules/spawn/loadout.lua
+
+-- Ensure KYBER table exists
+KYBER = KYBER or {}
+
 if SERVER then
     -- Define spawn positions for factions and default neutral players
     KYBER.SpawnPoints = {
@@ -19,7 +24,7 @@ if SERVER then
 
     hook.Add("PlayerSpawn", "KyberSpawnLogic", function(ply)
         local factionID = ply:GetNWString("kyber_faction", "")
-        local isInFaction = KYBER.Factions[factionID] ~= nil
+        local isInFaction = KYBER.Factions and KYBER.Factions[factionID] ~= nil
 
         -- Choose spawn location
         local pos = isInFaction and KYBER.SpawnPoints[factionID] or KYBER.SpawnPoints["default"]

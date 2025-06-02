@@ -1,112 +1,68 @@
--- Kyber Roleplay Framework
--- Shared configuration
+-- kyber/gamemode/shared.lua
 
-GM.Name = "Kyber Roleplay"
+-- Gamemode info
+GM.Name = "Kyber RP"
 GM.Author = "Kyber Development Team"
 GM.Email = ""
 GM.Website = ""
-GM.Version = "1.0.0"
 
--- Initialize framework
+-- Initialize KYBER table
 KYBER = KYBER or {}
 
--- Shared faction definitions
+-- Basic faction definitions (shared between client and server)
 KYBER.Factions = {
-    ["republic"] = {
-        name = "Galactic Republic",
-        color = Color(100, 100, 255),
-        ranks = {"Citizen", "Representative", "Senator", "Chancellor"},
-        canUseForce = false
-    },
-    
-    ["imperial"] = {
-        name = "Imperial Remnant", 
-        color = Color(150, 150, 150),
-        ranks = {"Trooper", "Corporal", "Sergeant", "Lieutenant", "Captain", "Major", "Colonel", "Admiral"},
-        canUseForce = false
-    },
-    
-    ["rebel"] = {
-        name = "Rebel Alliance",
-        color = Color(255, 100, 100),
-        ranks = {"Recruit", "Private", "Lieutenant", "Captain", "Major", "General"},
-        canUseForce = false
-    },
-    
     ["jedi"] = {
         name = "Jedi Order",
-        color = Color(100, 255, 100),
-        ranks = {"Youngling", "Padawan", "Knight", "Master", "Council Member"},
-        canUseForce = true
+        color = Color(100, 200, 255),
+        description = "Guardians of peace and justice",
+        ranks = {"Youngling", "Padawan", "Knight", "Master"}
     },
-    
     ["sith"] = {
         name = "Sith Order",
         color = Color(255, 50, 50),
-        ranks = {"Acolyte", "Apprentice", "Lord", "Darth"},
-        canUseForce = true
+        description = "Dark side Force users",
+        ranks = {"Acolyte", "Apprentice", "Lord", "Darth"}
     },
-    
+    ["imperial"] = {
+        name = "Imperial Remnant",
+        color = Color(150, 150, 150),
+        description = "Remains of the Galactic Empire",
+        ranks = {"Trooper", "Sergeant", "Lieutenant", "Captain", "Admiral"}
+    },
+    ["rebel"] = {
+        name = "Rebel Alliance",
+        color = Color(255, 150, 50),
+        description = "Freedom fighters",
+        ranks = {"Recruit", "Fighter", "Commander", "General"}
+    },
+    ["bounty"] = {
+        name = "Bounty Hunters",
+        color = Color(200, 200, 50),
+        description = "Independent contractors",
+        ranks = {"Novice", "Hunter", "Veteran", "Legend"}
+    },
     ["mandalorian"] = {
         name = "Mandalorian Clans",
-        color = Color(255, 200, 100),
-        ranks = {"Foundling", "Warrior", "Veteran", "Chieftain", "Mand'alor"},
-        canUseForce = false
-    },
-    
-    ["bounty"] = {
-        name = "Bounty Hunters Guild",
-        color = Color(200, 150, 100),
-        ranks = {"Novice", "Hunter", "Veteran", "Master", "Guild Leader"},
-        canUseForce = false
-    },
-    
-    ["hutt"] = {
-        name = "Hutt Cartel",
-        color = Color(150, 255, 100),
-        ranks = {"Thug", "Enforcer", "Lieutenant", "Underboss", "Kajidic Head"},
-        canUseForce = false
+        color = Color(100, 255, 100),
+        description = "Warrior culture",
+        ranks = {"Foundling", "Warrior", "Veteran", "Clan Leader"}
     }
 }
 
--- Game rules
-function GM:PlayerLoadout(ply)
-    ply:SetMaxHealth(100)
-    ply:SetHealth(100)
-    ply:SetArmor(0)
+-- Utility function to set faction
+function KYBER:SetFaction(ply, factionID)
+    if not IsValid(ply) then return end
     
-    -- Give basic tools
-    ply:Give("weapon_physgun")
-    ply:Give("gmod_tool")
-    ply:Give("weapon_physcannon")
-end
-
-function GM:PlayerSpawn(ply)
-    player_manager.SetPlayerClass(ply, "player_default")
-    
-    -- Set model based on faction/preference
-    local model = ply:GetInfo("cl_playermodel") or "models/player/group01/male_02.mdl"
-    ply:SetModel(model)
-    
-    self:PlayerLoadout(ply)
-end
-
-function GM:PlayerInitialSpawn(ply)
-    -- Initialize character name
-    if not ply:GetNWString("kyber_name") or ply:GetNWString("kyber_name") == "" then
-        ply:SetNWString("kyber_name", ply:Nick())
+    local faction = self.Factions[factionID]
+    if faction then
+        ply:SetNWString("kyber_faction", factionID)
+        ply:SetNWString("kyber_rank", faction.ranks[1]) -- Set to lowest rank
+        
+        if SERVER then
+            ply:ChatPrint("You joined the " .. faction.name)
+        end
+    else
+        ply:SetNWString("kyber_faction", "")
+        ply:SetNWString("kyber_rank", "")
     end
 end
-
--- Disable fall damage for RP
-function GM:GetFallDamage(ply, speed)
-    return 0
-end
-
--- Custom chat system hook placeholder
-function GM:PlayerSay(ply, text, teamChat)
-    -- Let modules handle chat processing
-    return ""
-end
-
-print("[Kyber] Shared configuration loaded")

@@ -1,3 +1,8 @@
+-- kyber/gamemode/modules/playerdata/core.lua
+
+-- Ensure KYBER table exists
+KYBER = KYBER or {}
+
 -- Shared interface
 KYBER.PlayerData = {}
 
@@ -10,7 +15,7 @@ KYBER.PlayerData.Defaults = {
     is_force_sensitive = false
 }
 
--- Get a player’s data safely
+-- Get a player's data safely
 function KYBER:GetPlayerData(ply, key)
     if not IsValid(ply) or not key then return nil end
     local val = ply:GetPData("kyber_" .. key)
@@ -30,12 +35,16 @@ function KYBER:SetPlayerData(ply, key, value)
     ply:SetPData("kyber_" .. key, tostring(value))
 end
 
--- Load player data into NWVars for client access
-hook.Add("PlayerInitialSpawn", "KyberLoadPlayerData", function(ply)
-    timer.Simple(1, function()
-        for key, _ in pairs(KYBER.PlayerData.Defaults) do
-            local val = KYBER:GetPlayerData(ply, key)
-            ply:SetNWString("kyberdata_" .. key, tostring(val))
-        end
+if SERVER then
+    -- Load player data into NWVars for client access
+    hook.Add("PlayerInitialSpawn", "KyberLoadPlayerData", function(ply)
+        timer.Simple(1, function()
+            if not IsValid(ply) then return end
+            
+            for key, _ in pairs(KYBER.PlayerData.Defaults) do
+                local val = KYBER:GetPlayerData(ply, key)
+                ply:SetNWString("kyberdata_" .. key, tostring(val))
+            end
+        end)
     end)
-end)
+end

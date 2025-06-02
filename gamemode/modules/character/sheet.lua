@@ -1,3 +1,6 @@
+-- kyber/gamemode/modules/character/sheet.lua
+-- Simplified version to avoid syntax errors
+
 if SERVER then
     util.AddNetworkString("Kyber_OpenCharacterSheet")
 
@@ -23,17 +26,36 @@ else
         sheetPanel:Dock(FILL)
         sheetPanel:DockMargin(10, 10, 10, 10)
 
+        -- Get player info safely
+        local ply = LocalPlayer()
+        local playerName = ply:GetNWString("kyber_name", ply:Nick())
+        local playerSpecies = ply:GetNWString("kyber_species", "Human")
+        local playerAlignment = ply:GetNWString("kyber_alignment", "Neutral")
+        local playerRank = ply:GetNWString("kyber_rank", "Unranked")
+        
+        -- Get faction safely
+        local factionID = ply:GetNWString("kyber_faction", "")
+        local factionName = "None"
+        if factionID ~= "" and KYBER and KYBER.Factions and KYBER.Factions[factionID] then
+            factionName = KYBER.Factions[factionID].name
+        end
+        
+        -- Get Force sensitivity
+        local forceSensitive = ply:GetNWBool("kyber_force_sensitive", false) and "Yes" or "No"
+
+        -- Create info table
         local charInfo = {
-			{label = "Name", value = LocalPlayer():GetNWString("kyber_name", LocalPlayer():Nick())},
-			{label = "Species", value = LocalPlayer():GetNWString("kyber_species", "Human")},
-			{label = "Alignment", value = LocalPlayer():GetNWString("kyber_alignment", "Neutral")},
-			{label = "Faction", value = KYBER.Factions[LocalPlayer():GetNWString("kyber_faction", "none")] and KYBER.Factions[LocalPlayer():GetNWString("kyber_faction")].name or "None"},
-            {label = "Force Sensitive", value = "Unknown"},
+            {label = "Name", value = playerName},
+            {label = "Species", value = playerSpecies},
+            {label = "Alignment", value = playerAlignment},
+            {label = "Faction", value = factionName},
+            {label = "Rank", value = playerRank},
+            {label = "Force Sensitive", value = forceSensitive},
             {label = "Backstory", value = "Born into a galaxy in turmoil..."},
             {label = "Known Skills", value = "Piloting, Sabersmithing"}
-			{label = "Rank", value = LocalPlayer():GetNWString("kyber_rank", "Unranked")},
         }
 
+        -- Display the info
         local y = 10
         for _, info in ipairs(charInfo) do
             local lbl = vgui.Create("DLabel", sheetPanel)
