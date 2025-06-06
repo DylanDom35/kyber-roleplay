@@ -2,11 +2,19 @@
 
 KYBER.SpawnManager = KYBER.SpawnManager or {}
 
+-- Register network strings
+local networkStrings = {
+    "Kyber_OpenSpawnManager",
+    "Kyber_UpdateSpawnList"
+}
+
+for _, name in ipairs(networkStrings) do
+    KYBER.Management.Network:Register(name)
+end
+
 if SERVER then
-    util.AddNetworkString("Kyber_OpenSpawnManager")
     util.AddNetworkString("Kyber_SetSpawnPoint")
     util.AddNetworkString("Kyber_DeleteSpawnPoint")
-    util.AddNetworkString("Kyber_UpdateSpawnList")
     
     -- Initialize spawn system
     function KYBER.SpawnManager:Initialize()
@@ -167,24 +175,34 @@ if SERVER then
         KYBER.SpawnManager:DeleteSpawnPoint(ply, spawnID)
     end)
     
-    -- Override player spawn
-    hook.Add("PlayerSpawn", "KyberSpawnManager", function(ply)
-        timer.Simple(0.1, function()
+    -- Player spawn hook
+    KYBER.Management.Hooks:Add("PlayerSpawn", "KyberSpawnManager", function(ply)
+        KYBER.Management.Timers:Create("KyberSpawnInit_" .. ply:SteamID64(), 0.1, 1, function()
             if IsValid(ply) then
-                KYBER.Optimization.SafeCall(function()
+                local success, err = pcall(function()
                     local pos, ang = KYBER.SpawnManager:GetSpawnPoint(ply)
                     ply:SetPos(pos)
                     if ang then
                         ply:SetEyeAngles(ang)
                     end
                 end)
+                
+                if not success then
+                    KYBER.Management.ErrorHandler:Handle(err, "Failed to set spawn position for " .. ply:SteamID64())
+                end
             end
         end)
     end)
     
     -- Initialize on gamemode load
-    hook.Add("Initialize", "KyberSpawnManagerInit", function()
-        KYBER.SpawnManager:Initialize()
+    KYBER.Management.Hooks:Add("Initialize", "KyberSpawnManagerInit", function()
+        local success, err = pcall(function()
+            KYBER.SpawnManager:Initialize()
+        end)
+        
+        if not success then
+            KYBER.Management.ErrorHandler:Handle(err, "Failed to initialize spawn manager")
+        end
     end)
     
 else -- CLIENT
@@ -192,14 +210,26 @@ else -- CLIENT
     local SpawnManagerFrame = nil
     
     net.Receive("Kyber_OpenSpawnManager", function()
-        local spawnPoints = net.ReadTable()
-        KYBER.SpawnManager:OpenUI(spawnPoints)
+        local success, spawnPoints = pcall(function()
+            return net.ReadTable()
+        end)
+        
+        if success then
+            KYBER.SpawnManager:OpenUI(spawnPoints)
+        else
+            KYBER.Management.ErrorHandler:Handle(spawnPoints, "Failed to read spawn points")
+        end
     end)
     
     net.Receive("Kyber_UpdateSpawnList", function()
-        local spawnPoints = net.ReadTable()
-        if IsValid(SpawnManagerFrame) then
+        local success, spawnPoints = pcall(function()
+            return net.ReadTable()
+        end)
+        
+        if success and IsValid(SpawnManagerFrame) then
             KYBER.SpawnManager:RefreshUI(spawnPoints)
+        elseif not success then
+            KYBER.Management.ErrorHandler:Handle(spawnPoints, "Failed to read spawn points update")
         end
     end)
     
@@ -458,5 +488,12 @@ else -- CLIENT
                 LocalPlayer():ChatPrint("Teleported to " .. spawn.name)
             end
         end
+    end
+end
+
+function KYBER.SpawnManager:Cleanup()
+    if SERVER then
+        KYBER.Management.Hooks:Remove("KyberSpawnManager")
+        KYBER.Management.Hooks:Remove("KyberSpawnManagerInit")
     end
 end

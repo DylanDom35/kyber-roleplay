@@ -46,89 +46,71 @@ function KYBER.CreateModule(name, metadata)
     return module
 end
 
--- Load a module's files
-function KYBER.LoadModuleFiles(moduleName, path)
+-- Load a single module
+function KYBER.LoadModule(moduleName)
+    local modulePath = "kyber/gamemode/modules/" .. moduleName
+    local initPath = modulePath .. "/init.lua"
+    
+    if not file.Exists(initPath, "LUA") then
+        KYBER.LogError("Module not found: " .. moduleName .. " (Path: " .. initPath .. ")")
+        return false
+    end
+    
+    -- Create module table
+    KYBER.Modules[moduleName] = KYBER.Modules[moduleName] or {
+        name = moduleName,
+        files = {},
+        errors = {},
+        state = MODULE_STATES.UNLOADED
+    }
+    
     local module = KYBER.Modules[moduleName]
-    if not module then
-        KYBER.LogError("Module not found: " .. moduleName)
-        return false
-    end
-
-    module.state = MODULE_STATES.LOADING
-
-    -- Get all Lua files in the module directory
-    local files, dirs = file.Find(path .. "/*.lua", "LUA")
-    if not files then
-        module.state = MODULE_STATES.ERROR
-        table.insert(module.errors, "No files found in " .. path)
-        return false
-    end
-
-    -- Sort files by load order
-    table.sort(files, function(a, b)
-        local aOrder = module.metadata.loadOrder or 0
-        local bOrder = module.metadata.loadOrder or 0
-        return aOrder < bOrder
-    end)
-
-    -- Load each file
-    for _, file in ipairs(files) do
-        local filePath = path .. "/" .. file
-        local success, err = pcall(function()
-            if SERVER then
-                AddCSLuaFile(filePath)
-            end
-            if CLIENT or file:sub(1, 3) == "sv_" then
-                include(filePath)
-            end
-        end)
-
-        if not success then
-            table.insert(module.errors, "Error loading " .. file .. ": " .. tostring(err))
-        else
-            table.insert(module.files, file)
-        end
-    end
-
-    module.state = MODULE_STATES.LOADED
-    return true
-end
-
--- Initialize a module
-function KYBER.InitModule(moduleName)
-    local module = KYBER.Modules[moduleName]
-    if not module then
-        KYBER.LogError("Module not found: " .. moduleName)
-        return false
-    end
-
-    -- Check dependencies
-    for _, dep in ipairs(module.metadata.dependencies or {}) do
-        if not KYBER.Modules[dep] or KYBER.Modules[dep].state ~= MODULE_STATES.LOADED then
-            KYBER.LogError("Dependency not met for " .. moduleName .. ": " .. dep)
-            return false
-        end
-    end
-
-    -- Initialize module
+    
+    -- Load init file
     local success, err = pcall(function()
-        if module.Init then
-            module:Init()
+        if SERVER then
+            AddCSLuaFile(initPath)
         end
+        include(initPath)
     end)
-
+    
     if not success then
         module.state = MODULE_STATES.ERROR
-        table.insert(module.errors, "Initialization error: " .. tostring(err))
+        table.insert(module.errors, "Error loading init file: " .. tostring(err))
+        KYBER.LogError("Failed to load module " .. moduleName .. ": " .. tostring(err))
         return false
     end
-
+    
+    -- Load additional files
+    local files, _ = file.Find(modulePath .. "/*.lua", "LUA")
+    if files then
+        for _, file in ipairs(files) do
+            if file ~= "init.lua" then
+                local filePath = modulePath .. "/" .. file
+                local success, err = pcall(function()
+                    if SERVER then
+                        AddCSLuaFile(filePath)
+                    end
+                    include(filePath)
+                end)
+                
+                if not success then
+                    table.insert(module.errors, "Error loading " .. file .. ": " .. tostring(err))
+                    KYBER.LogError("Failed to load file " .. filePath .. ": " .. tostring(err))
+                else
+                    table.insert(module.files, file)
+                end
+            end
+        end
+    end
+    
+    module.state = MODULE_STATES.LOADED
     return true
 end
 
 -- Load all modules
 function KYBER.LoadAllModules()
-    local modulesPath = "kyber-roleplay/gamemode/modules"
+    local modulesPath = "kyber/gamemode/modules"
     local modules, _ = file.Find(modulesPath .. "/*", "LUA")
 
     if not modules then
@@ -136,34 +118,12 @@ function KYBER.LoadAllModules()
         return false
     end
 
-    -- First pass: Create all modules
-    for _, moduleDir in ipairs(modules) do
-        local modulePath = modulesPath .. "/" .. moduleDir
-        local initFile = modulePath .. "/init.lua"
-
-        if file.Exists(initFile, "LUA") then
-            local success, moduleData = pcall(function()
-                return include(initFile)
-            end)
-
-            if success and moduleData then
-                KYBER.CreateModule(moduleDir, moduleData)
+    -- Load each module
+    for _, moduleName in ipairs(modules) do
+        if file.Exists(modulesPath .. "/" .. moduleName .. "/init.lua", "LUA") then
+            if not KYBER.LoadModule(moduleName) then
+                KYBER.LogError("Failed to load module: " .. moduleName)
             end
-        end
-    end
-
-    -- Second pass: Load and initialize modules
-    for moduleName, module in pairs(KYBER.Modules) do
-        local modulePath = modulesPath .. "/" .. moduleName
-        if not KYBER.LoadModuleFiles(moduleName, modulePath) then
-            KYBER.LogError("Failed to load module: " .. moduleName)
-        end
-    end
-
-    -- Third pass: Initialize modules
-    for moduleName, module in pairs(KYBER.Modules) do
-        if not KYBER.InitModule(moduleName) then
-            KYBER.LogError("Failed to initialize module: " .. moduleName)
         end
     end
 
@@ -179,8 +139,7 @@ function KYBER.GetModuleStatus(moduleName)
         name = module.name,
         state = module.state,
         files = module.files,
-        errors = module.errors,
-        metadata = module.metadata
+        errors = module.errors
     }
 end
 
@@ -197,13 +156,7 @@ function KYBER.ReloadModule(moduleName)
     module.files = {}
     module.errors = {}
 
-    -- Reload module
-    local modulePath = "kyber-roleplay/gamemode/modules/" .. moduleName
-    if not KYBER.LoadModuleFiles(moduleName, modulePath) then
-        return false
-    end
-
-    return KYBER.InitModule(moduleName)
+    return KYBER.LoadModule(moduleName)
 end
 
 -- Register a hook for a module
@@ -263,7 +216,5 @@ function KYBER.LogError(message)
     end
 end
 
--- Initialize the loader
-if SERVER then
-    KYBER.LoadAllModules()
-end 
+-- Initialize module loader
+print("[Kyber] Module loader initialized") 

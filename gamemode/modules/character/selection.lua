@@ -69,144 +69,113 @@ if SERVER then
     end)
 else
     -- Include our custom VGUI elements
-    include("modules/datapad/vgui.lua")
+    include("kyber/gamemode/modules/datapad/vgui.lua")
     
     -- Character selection screen
-    function Kyber_OpenCharacterSelection(hasCharacter, characters)
-        if IsValid(KyberSelectionFrame) then KyberSelectionFrame:Remove() end
+    local function OpenCharacterSelection()
+        if not IsValid(LocalPlayer()) then return end
         
-        -- Create main frame
-        KyberSelectionFrame = KYBER.CreateSWFrame(nil, "Character Selection", 800, 600)
+        -- Create the frame
+        local frame = vgui.Create("DFrame")
+        if not IsValid(frame) then
+            print("[Kyber] Failed to create character selection frame")
+            return
+        end
         
-        -- Create main panel
-        local mainPanel = KYBER.CreateSWPanel(KyberSelectionFrame, 10, 40, 780, 550)
+        frame:SetSize(ScrW() * 0.8, ScrH() * 0.8)
+        frame:Center()
+        frame:SetTitle("Character Selection")
+        frame:SetDraggable(false)
+        frame:ShowCloseButton(false)
+        frame:MakePopup()
         
-        if not hasCharacter then
-            -- No character - show creation button
-            local createBtn = KYBER.CreateSWButton(mainPanel, "Create New Character", 290, 250, 220, 50)
-            createBtn.DoClick = function()
-                KyberSelectionFrame:Remove()
-                net.Start("Kyber_Character_OpenCreation")
-                net.SendToServer()
-            end
-            
-            local welcomeText = KYBER.CreateSWLabel(mainPanel, "Welcome to Kyber Roleplay", 0, 150, 780, 40)
-            welcomeText:SetFont("DermaLarge")
-            welcomeText:SetContentAlignment(5)
-            
-            local subText = KYBER.CreateSWLabel(mainPanel, "Create your character to begin your journey", 0, 200, 780, 30)
-            subText:SetFont("DermaDefault")
-            subText:SetContentAlignment(5)
-        else
-            -- Has characters - show selection
-            local title = KYBER.CreateSWLabel(mainPanel, "Select Your Character", 0, 20, 780, 40)
-            title:SetFont("DermaLarge")
-            title:SetContentAlignment(5)
-            
-            -- Character list
-            local charList = vgui.Create("DScrollPanel", mainPanel)
-            charList:SetPos(40, 80)
-            charList:SetSize(700, 400)
-            
-            -- Custom scrollbar
-            local sbar = charList:GetVBar()
-            function sbar:Paint(w, h) draw.RoundedBox(0, 0, 0, w, h, KYBER.Colors.Background) end
-            function sbar.btnUp:Paint(w, h) draw.RoundedBox(0, 0, 0, w, h, KYBER.Colors.Primary) end
-            function sbar.btnDown:Paint(w, h) draw.RoundedBox(0, 0, 0, w, h, KYBER.Colors.Primary) end
-            function sbar.btnGrip:Paint(w, h) draw.RoundedBox(0, 0, 0, w, h, KYBER.Colors.Secondary) end
-            
-            local y = 0
-            for _, char in ipairs(characters) do
-                local charPanel = KYBER.CreateSWPanel(charList, 0, y, 680, 100)
-                
-                -- Character name
-                local nameLabel = KYBER.CreateSWLabel(charPanel, char.name, 20, 10, 300, 30)
-                nameLabel:SetFont("DermaDefaultBold")
-                
-                -- Character info
-                local infoLabel = KYBER.CreateSWLabel(charPanel, 
-                    string.format("Species: %s | Last Played: %s", 
-                    char.species,
-                    os.date("%Y-%m-%d", char.lastPlayed or 0)),
-                    20, 40, 300, 20)
-                
-                -- Select button
-                local selectBtn = KYBER.CreateSWButton(charPanel, "Select", 500, 35, 80, 30)
-                selectBtn.DoClick = function()
-                    net.Start("Kyber_Character_SelectCharacter")
-                    net.WriteString(char.name)
-                    net.SendToServer()
-                    KyberSelectionFrame:Remove()
+        -- Add Star Wars themed background
+        local bg = vgui.Create("DPanel", frame)
+        if IsValid(bg) then
+            bg:Dock(FILL)
+            bg.Paint = function(self, w, h)
+                draw.RoundedBox(0, 0, 0, w, h, Color(0, 0, 0, 255))
+                -- Add star field effect
+                for i = 1, 100 do
+                    local x = math.random(0, w)
+                    local y = math.random(0, h)
+                    local size = math.random(1, 3)
+                    draw.RoundedBox(0, x, y, size, size, Color(255, 255, 255, 255))
                 end
-                
-                -- Delete button
-                local deleteBtn = KYBER.CreateSWButton(charPanel, "Delete", 590, 35, 80, 30)
-                deleteBtn.DoClick = function()
-                    local confirm = vgui.Create("DFrame")
-                    confirm:SetSize(300, 150)
-                    confirm:Center()
-                    confirm:SetTitle("Confirm Deletion")
-                    confirm:MakePopup()
-                    
-                    local confirmLabel = vgui.Create("DLabel", confirm)
-                    confirmLabel:SetPos(10, 30)
-                    confirmLabel:SetSize(280, 40)
-                    confirmLabel:SetText("Are you sure you want to delete this character?")
-                    confirmLabel:SetWrap(true)
-                    
-                    local yesBtn = vgui.Create("DButton", confirm)
-                    yesBtn:SetPos(10, 80)
-                    yesBtn:SetSize(135, 30)
-                    yesBtn:SetText("Yes")
-                    yesBtn.DoClick = function()
-                        net.Start("Kyber_Character_DeleteCharacter")
-                        net.WriteString(char.name)
-                        net.SendToServer()
-                        confirm:Remove()
-                        KyberSelectionFrame:Remove()
-                        timer.Simple(0.5, function()
-                            net.Start("Kyber_Character_OpenSelection")
-                            net.SendToServer()
-                        end)
-                    end
-                    
-                    local noBtn = vgui.Create("DButton", confirm)
-                    noBtn:SetPos(155, 80)
-                    noBtn:SetSize(135, 30)
-                    noBtn:SetText("No")
-                    noBtn.DoClick = function()
-                        confirm:Remove()
-                    end
-                end
-                
-                y = y + 110
-            end
-            
-            -- Create new character button
-            local createBtn = KYBER.CreateSWButton(mainPanel, "Create New Character", 290, 500, 220, 40)
-            createBtn.DoClick = function()
-                KyberSelectionFrame:Remove()
-                net.Start("Kyber_Character_OpenCreation")
-                net.SendToServer()
             end
         end
         
-        -- Add scanlines effect
-        function KyberSelectionFrame:PaintOver(w, h)
-            local scanlineHeight = 2
-            local scanlineSpacing = 4
-            local scanlineAlpha = 20
-
-            for y = 0, h, scanlineSpacing do
-                draw.RoundedBox(0, 0, y, w, scanlineHeight, Color(0, 0, 0, scanlineAlpha))
+        -- Add character list
+        local charList = vgui.Create("DScrollPanel", frame)
+        if IsValid(charList) then
+            charList:SetSize(ScrW() * 0.3, ScrH() * 0.6)
+            charList:SetPos(ScrW() * 0.1, ScrH() * 0.1)
+            
+            -- Get character files
+            local steamID = LocalPlayer():SteamID64()
+            local files = file.Find("kyber/characters/" .. steamID .. "_*.json", "DATA")
+            
+            if #files > 0 then
+                for _, fileName in ipairs(files) do
+                    local charData = file.Read("kyber/characters/" .. fileName, "DATA")
+                    if charData then
+                        local character = util.JSONToTable(charData)
+                        if character then
+                            local button = vgui.Create("DButton", charList)
+                            if IsValid(button) then
+                                button:SetSize(ScrW() * 0.25, 50)
+                                button:SetText(character.name)
+                                button:SetTextColor(Color(255, 255, 255))
+                                button.Paint = function(self, w, h)
+                                    draw.RoundedBox(0, 0, 0, w, h, Color(0, 0, 0, 200))
+                                    if self:IsHovered() then
+                                        draw.RoundedBox(0, 0, 0, w, h, Color(255, 255, 255, 50))
+                                    end
+                                end
+                                button.DoClick = function()
+                                    net.Start("Kyber_Character_Select")
+                                    net.WriteString(character.name)
+                                    net.SendToServer()
+                                    frame:Close()
+                                end
+                            end
+                        end
+                    end
+                end
+            else
+                local label = vgui.Create("DLabel", charList)
+                if IsValid(label) then
+                    label:SetText("No characters found")
+                    label:SetTextColor(Color(255, 255, 255))
+                    label:SizeToContents()
+                    label:Center()
+                end
+            end
+        end
+        
+        -- Add create character button
+        local createButton = vgui.Create("DButton", frame)
+        if IsValid(createButton) then
+            createButton:SetSize(ScrW() * 0.2, 40)
+            createButton:SetPos(ScrW() * 0.1, ScrH() * 0.75)
+            createButton:SetText("Create New Character")
+            createButton:SetTextColor(Color(255, 255, 255))
+            createButton.Paint = function(self, w, h)
+                draw.RoundedBox(0, 0, 0, w, h, Color(0, 0, 0, 200))
+                if self:IsHovered() then
+                    draw.RoundedBox(0, 0, 0, w, h, Color(255, 255, 255, 50))
+                end
+            end
+            createButton.DoClick = function()
+                net.Start("Kyber_Character_OpenCreation")
+                net.SendToServer()
+                frame:Close()
             end
         end
     end
     
-    -- Receive character selection data
+    -- Network receiver for opening character selection
     net.Receive("Kyber_Character_OpenSelection", function()
-        local hasCharacter = net.ReadBool()
-        local characters = net.ReadTable()
-        Kyber_OpenCharacterSelection(hasCharacter, characters)
+        OpenCharacterSelection()
     end)
 end 

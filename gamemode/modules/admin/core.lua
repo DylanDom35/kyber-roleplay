@@ -302,23 +302,35 @@ end
 -- Setup hooks
 function KYBER.Admin:SetupHooks()
     if SERVER then
-        -- Network strings
-        util.AddNetworkString("Kyber_Admin_OpenPanel")
-        util.AddNetworkString("Kyber_Admin_ExecuteCommand")
-        util.AddNetworkString("Kyber_Admin_RequestData")
-        util.AddNetworkString("Kyber_Admin_UpdateData")
+        -- Register network strings
+        local networkStrings = {
+            "Kyber_Admin_OpenPanel",
+            "Kyber_Admin_ExecuteCommand",
+            "Kyber_Admin_RequestData",
+            "Kyber_Admin_UpdateData"
+        }
+        
+        for _, name in ipairs(networkStrings) do
+            KYBER.Management.Network:Register(name)
+        end
         
         -- Set admin status on spawn
-        hook.Add("PlayerInitialSpawn", "KyberAdminSpawn", function(ply)
-            timer.Simple(1, function()
+        KYBER.Management.Hooks:Add("PlayerInitialSpawn", "KyberAdminSpawn", function(ply)
+            KYBER.Management.Timers:Create("KyberAdminInit_" .. ply:SteamID64(), 1, 1, function()
                 if IsValid(ply) then
-                    self:SetAdminStatus(ply)
+                    local success, err = pcall(function()
+                        self:SetAdminStatus(ply)
+                    end)
+                    
+                    if not success then
+                        KYBER.Management.ErrorHandler:Handle(err, "Failed to set admin status for " .. ply:SteamID64())
+                    end
                 end
             end)
         end)
         
         -- Admin chat command
-        hook.Add("PlayerSay", "KyberAdminChat", function(ply, text)
+        KYBER.Management.Hooks:Add("PlayerSay", "KyberAdminChat", function(ply, text)
             if string.sub(text, 1, 1) == "!" and self:IsAdmin(ply) then
                 -- Admin command
                 local args = string.Explode(" ", text)
@@ -336,67 +348,12 @@ function KYBER.Admin:SetupHooks()
                 return ""
             end
         end)
-        
-        -- Network handlers
-        net.Receive("Kyber_Admin_ExecuteCommand", function(len, ply)
-            if not KYBER.Admin:IsAdmin(ply) then return end
-            if IsRateLimited(ply, "ExecuteCommand", 0.5) then return end
-            
-            local command = net.ReadString()
-            local args = net.ReadTable()
-            
-            KYBER.Optimization.SafeCall(function()
-                local success, err = KYBER.Admin:ExecuteCommand(ply, command, args)
-                
-                if not success then
-                    ply:ChatPrint("Command failed: " .. err)
-                end
-            end)
-        end)
-        
-        net.Receive("Kyber_Admin_RequestData", function(len, ply)
-            if not self:IsAdmin(ply) then return end
-            
-            local dataType = net.ReadString()
-            
-            if dataType == "players" then
-                local players = {}
-                for _, p in ipairs(player.GetAll()) do
-                    table.insert(players, {
-                        name = p:Nick(),
-                        steamID = p:SteamID64(),
-                        userID = p:UserID(),
-                        health = p:Health(),
-                        maxHealth = p:GetMaxHealth(),
-                        armor = p:Armor(),
-                        faction = p:GetNWString("kyber_faction", "None"),
-                        adminLevel = self:GetAdminLevel(p)
-                    })
-                end
-                
-                net.Start("Kyber_Admin_UpdateData")
-                net.WriteString("players")
-                net.WriteTable(players)
-                net.Send(ply)
-                
-            elseif dataType == "admins" then
-                local admins = self:GetAllAdmins()
-                
-                net.Start("Kyber_Admin_UpdateData")
-                net.WriteString("admins")
-                net.WriteTable(admins)
-                net.Send(ply)
-                
-            elseif dataType == "logs" then
-                local logs = self:GetLogs(7) -- Last 7 days
-                
-                net.Start("Kyber_Admin_UpdateData")
-                net.WriteString("logs")
-                net.WriteTable(logs)
-                net.Send(ply)
-            end
-        end)
     end
+end
+
+function KYBER.Admin:Cleanup()
+    KYBER.Management.Hooks:Remove("KyberAdminSpawn")
+    KYBER.Management.Hooks:Remove("KyberAdminChat")
 end
 
 -- Override default admin functions

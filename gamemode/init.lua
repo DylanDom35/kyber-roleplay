@@ -1,223 +1,160 @@
 -- kyber/gamemode/init.lua
 -- Complete Kyber Gamemode Initialization
 
--- Initialize the KYBER table first
+-- Initialize KYBER table
 KYBER = KYBER or {}
 
 print("[Kyber] Starting gamemode initialization...")
 
--- Add all client files for download
-local clientFiles = {
-    "shared.lua",
-    "cl_init.lua",
-    
-    -- Character system
-    "modules/character/sheet.lua",
-    "modules/character/creation.lua",
-    "modules/character/selection.lua",
-    
-    -- Admin system
-    "modules/admin/core.lua",
-    "modules/admin/ui.lua",
-    "modules/admin/integration.lua",
+-- Include shared code
+include("kyber/gamemode/shared.lua")
 
+-- Include management system
+include("kyber/gamemode/core/management.lua")
+
+-- Include module loader
+include("kyber/gamemode/core/loader.lua")
+
+-- Register network strings using the management system
+local networkStrings = {
+    -- Character
+    "Kyber_Character_OpenSelection",
+    "Kyber_Character_Select",
+    "Kyber_Character_Create",
+    "Kyber_Character_Delete",
     
-    -- Inventory system
-    "modules/inventory/system.lua",
-    "modules/inventory/trading.lua",
-    "modules/inventory/integration.lua",
+    -- Inventory
+    "Kyber_Inventory_Update",
+    "Kyber_Inventory_Use",
+    "Kyber_Inventory_Drop",
+    "Kyber_Inventory_Give",
     
-    -- Equipment system
-    "modules/equipment/system.lua",
-    "modules/equipment/integration.lua",
+    -- Equipment
+    "Kyber_Equipment_Update",
+    "Kyber_Equipment_Equip",
+    "Kyber_Equipment_Unequip",
     
-    -- Medical system
-    "modules/medical/system.lua",
-    "modules/medical/integration.lua",
+    -- Banking
+    "Kyber_Banking_Update",
+    "Kyber_Banking_Deposit",
+    "Kyber_Banking_Withdraw",
+    "Kyber_Banking_Transfer",
     
-    -- Communication system
-    "modules/communication/system.lua",
-    
-    -- Reputation system
-    "modules/reputation/system.lua",
-    "modules/reputation/integration.lua",
-    
-    -- Banking system
-    "modules/banking/system.lua",
-    "modules/banking/integration.lua",
-    
-    -- Crafting system
-    "modules/crafting/system.lua",
-    "modules/crafting/integration.lua",
-    
-    -- Grand Exchange system
-    "modules/economy/grand_exchange.lua",
-    
-    -- Force lottery system
-    "modules/force/lottery.lua",
-    "modules/force/lottery_ui.lua",
-    
-    -- Faction creation system
-    "modules/factions/creation.lua",
-    
-    -- Legendary character system
-    "modules/legendary/system.lua",
-    
-    -- Galaxy travel system
-    "modules/galaxy/travel.lua",
+    -- Factions
+    "Kyber_Factions_Update",
+    "Kyber_Factions_Join",
+    "Kyber_Factions_Leave",
+    "Kyber_Factions_RankUp",
+    "Kyber_Factions_RankDown"
 }
 
--- Add all client files
-for _, file in ipairs(clientFiles) do
-    AddCSLuaFile(file)
+for _, name in ipairs(networkStrings) do
+    KYBER.Management.Network:Register(name)
 end
 
--- Include shared code first (this sets up KYBER table and factions)
-include("shared.lua")
+-- Load all modules
+KYBER.LoadAllModules()
 
--- Utility function for safe includes with error handling
-local function safeInclude(path, description)
-    local success, err = pcall(include, path)
-    if not success then
-        print("[Kyber] ERROR loading " .. (description or path) .. ": " .. tostring(err))
-        return false
-    else
-        print("[Kyber] ✓ Loaded " .. (description or path))
-        return true
-    end
+-- Initialize gamemode
+function GM:Initialize()
+    print("[Kyber] Initializing gamemode...")
 end
 
--- Test that KYBER exists after shared.lua
-if KYBER then
-    print("[Kyber] KYBER table initialized successfully")
-    if KYBER.Factions then
-        print("[Kyber] Factions loaded:", table.Count(KYBER.Factions), "factions")
-    end
-else
-    print("[Kyber] ERROR: KYBER table not initialized!")
-    return
-end
-
-print("[Kyber] Loading core systems...")
-
--- Load core systems first (order matters for dependencies)
-safeInclude("modules/playerdata/core.lua", "Player Data Core")
-
--- Character system (load early for player initialization)
-safeInclude("modules/character/sheet.lua", "Character Sheet")
-safeInclude("modules/character/creation.lua", "Character Creation")
-safeInclude("modules/character/selection.lua", "Character Selection")
-
--- Admin system (load early for debugging)
-safeInclude("modules/admin/core.lua", "Admin Core")
-safeInclude("modules/admin/commands.lua", "Admin Commands")
-safeInclude("modules/admin/integration.lua", "Admin Integration")
-safeInclude("modules/admin/panel.lua", "Admin Panel")
-
--- Spawn system
-safeInclude("modules/spawn/loadout.lua", "Spawn Loadout")
-
-print("[Kyber] Loading economy systems...")
-
--- Economy and inventory systems
-safeInclude("modules/inventory/system.lua", "Inventory System")
-safeInclude("modules/inventory/trading.lua", "Trading System")
-safeInclude("modules/economy/grand_exchange.lua", "Grand Exchange")
-
--- Banking system
-safeInclude("modules/banking/system.lua", "Banking System")
-safeInclude("modules/banking/integration.lua", "Banking Integration")
-
-print("[Kyber] Loading equipment and crafting...")
-
--- Equipment system
-safeInclude("modules/equipment/system.lua", "Equipment System")
-
--- Crafting system
-safeInclude("modules/crafting/system.lua", "Crafting System")
-safeInclude("modules/crafting/integration.lua", "Crafting Integration")
-
-print("[Kyber] Loading medical and reputation...")
-
--- Medical system
-safeInclude("modules/medical/system.lua", "Medical System")
-safeInclude("modules/medical/integration.lua", "Medical Integration")
-
--- Reputation system
-safeInclude("modules/reputation/system.lua", "Reputation System")
-safeInclude("modules/reputation/integration.lua", "Reputation Integration")
-
-print("[Kyber] Loading communication and special systems...")
-
--- Communication system
-safeInclude("modules/communication/system.lua", "Communication System")
-
--- Force lottery system
-safeInclude("modules/force/lottery.lua", "Force Lottery System")
-
--- Faction creation system
-safeInclude("modules/factions/creation.lua", "Faction Creation")
-
--- Legendary character system
-safeInclude("modules/legendary/system.lua", "Legendary Characters")
-
--- Galaxy travel system
-safeInclude("modules/galaxy/travel.lua", "Galaxy Travel")
-
-print("[Kyber] Loading integration modules...")
-
--- Load integration modules last
-safeInclude("modules/inventory/integration.lua", "Inventory Integration")
-safeInclude("modules/equipment/integration.lua", "Equipment Integration")
-
-print("[Kyber] Registering entities...")
-
--- Register entities
-local entities = {
-    "kyber_dropped_item",
-    "kyber_crafting_station", 
-    "kyber_bacta_tank",
-    "kyber_banking_terminal",
-    "kyber_galaxy_terminal"
-}
-
-for _, entName in ipairs(entities) do
-    local entPath = "entities/entities/" .. entName
-    AddCSLuaFile(entPath .. "/cl_init.lua")
-    AddCSLuaFile(entPath .. "/shared.lua")
-    safeInclude(entPath .. "/init.lua", "Entity: " .. entName)
-end
-
-print("[Kyber] Setting up gamemode hooks...")
-
--- Essential gamemode hooks
-function GM:PlayerInitialSpawn(ply)
-    -- Prevent player from spawning immediately
-    ply:SetNoDraw(true)
-    ply:Freeze(true)
-    ply:SetMoveType(MOVETYPE_NONE)
-    
-    -- Show loading screen
-    net.Start("Kyber_ShowLoadingScreen")
-    net.Send(ply)
-    
-    -- Wait a moment before showing character selection
-    timer.Simple(2, function()
+-- Player initial spawn
+hook.Add("PlayerInitialSpawn", "KyberPlayerInit", function(ply)
+    KYBER.Management.Timers:Create("KyberPlayerInit_" .. ply:SteamID64(), 1, 1, function()
         if IsValid(ply) then
-            -- Check if player has a character
-            local hasChar = KYBER.Character:HasCharacter(ply)
+            local success, err = pcall(function()
+                -- Initialize player data
+                if KYBER.Character then
+                    KYBER.Character:Initialize(ply)
+                end
+                
+                if KYBER.Inventory then
+                    KYBER.Inventory:Initialize(ply)
+                end
+                
+                if KYBER.Equipment then
+                    KYBER.Equipment:Initialize(ply)
+                end
+                
+                if KYBER.Banking then
+                    KYBER.Banking:Initialize(ply)
+                end
+                
+                if KYBER.Factions then
+                    KYBER.Factions:Initialize(ply)
+                end
+            end)
             
-            if hasChar then
-                -- Show character selection
-                KYBER.Character:OpenSelection(ply)
-            else
-                -- Show character creation
-                net.Start("Kyber_Character_OpenCreation")
-                net.Send(ply)
+            if not success then
+                KYBER.Management.ErrorHandler:Handle(err, "Failed to initialize player: " .. ply:SteamID64())
             end
         end
     end)
-end
+end)
+
+-- Player disconnect
+hook.Add("PlayerDisconnected", "KyberPlayerCleanup", function(ply)
+    local success, err = pcall(function()
+        -- Save player data
+        if KYBER.Character then
+            KYBER.Character:Save(ply)
+        end
+        
+        if KYBER.Inventory then
+            KYBER.Inventory:Save(ply)
+        end
+        
+        if KYBER.Equipment then
+            KYBER.Equipment:Save(ply)
+        end
+        
+        if KYBER.Banking then
+            KYBER.Banking:Save(ply)
+        end
+        
+        if KYBER.Factions then
+            KYBER.Factions:Save(ply)
+        end
+    end)
+    
+    if not success then
+        KYBER.Management.ErrorHandler:Handle(err, "Failed to cleanup player: " .. ply:SteamID64())
+    end
+end)
+
+-- Shutdown
+hook.Add("ShutDown", "KyberShutdown", function()
+    -- Save all player data
+    for _, ply in ipairs(player.GetAll()) do
+        local success, err = pcall(function()
+            if KYBER.Character then
+                KYBER.Character:Save(ply)
+            end
+            
+            if KYBER.Inventory then
+                KYBER.Inventory:Save(ply)
+            end
+            
+            if KYBER.Equipment then
+                KYBER.Equipment:Save(ply)
+            end
+            
+            if KYBER.Banking then
+                KYBER.Banking:Save(ply)
+            end
+            
+            if KYBER.Factions then
+                KYBER.Factions:Save(ply)
+            end
+        end)
+        
+        if not success then
+            KYBER.Management.ErrorHandler:Handle(err, "Failed to save player data on shutdown: " .. ply:SteamID64())
+        end
+    end
+end)
 
 function GM:PlayerSpawn(ply)
     -- Only give loadout if player has a character
@@ -235,25 +172,52 @@ function GM:PlayerSpawn(ply)
 end
 
 function GM:PlayerSay(ply, text, teamChat)
-    -- Handle OOC chat
-    if string.sub(text, 1, 2) == "//" or string.sub(text, 1, 4) == "/ooc" then
-        local oocText = string.sub(text, text:find(" ") and text:find(" ") + 1 or 3)
+    -- Handle commands
+    if string.sub(text, 1, 1) == "!" then
+        local cmd = string.lower(string.sub(text, 2))
+        local args = {}
         
-        for _, p in ipairs(player.GetAll()) do
-            p:ChatPrint("[OOC] " .. ply:Nick() .. ": " .. oocText)
+        -- Split command and arguments
+        for arg in string.gmatch(cmd, "%S+") do
+            table.insert(args, arg)
         end
         
-        return ""
+        -- Remove command from args
+        cmd = table.remove(args, 1)
+        
+        -- Handle specific commands
+        if cmd == "help" then
+            ply:ChatPrint("Available commands:")
+            ply:ChatPrint("!help - Show this help message")
+            ply:ChatPrint("!char - Open character menu")
+            ply:ChatPrint("!inv - Open inventory")
+            ply:ChatPrint("!bank - Open banking menu")
+            ply:ChatPrint("!faction - Open faction menu")
+            return ""
+        elseif cmd == "char" then
+            if KYBER.Character then
+                KYBER.Character:OpenMenu(ply)
+            end
+            return ""
+        elseif cmd == "inv" then
+            if KYBER.Inventory then
+                KYBER.Inventory:OpenMenu(ply)
+            end
+            return ""
+        elseif cmd == "bank" then
+            if KYBER.Banking then
+                KYBER.Banking:OpenMenu(ply)
+            end
+            return ""
+        elseif cmd == "faction" then
+            if KYBER.Factions then
+                KYBER.Factions:OpenMenu(ply)
+            end
+            return ""
+        end
     end
     
-    -- Handle character names in IC chat
-    local charName = ply:GetNWString("kyber_name", ply:Nick())
-    if charName ~= ply:Nick() then
-        for _, p in ipairs(player.GetAll()) do
-            p:ChatPrint(charName .. ": " .. text)
-        end
-        return ""
-    end
+    return text
 end
 
-print("[Kyber] Server initialization complete")
+print("[Kyber] Gamemode initialization complete")

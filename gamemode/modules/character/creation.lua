@@ -136,31 +136,77 @@ if SERVER then
     end
     
     -- Save character data
-    function KYBER.Character:SaveCharacter(ply, characterData)
+    function KYBER.Character:SaveCharacter(ply, character)
         local steamID = ply:SteamID64()
-        local fileName = steamID .. "_" .. util.CRC(characterData.name) .. ".json"
-        local filePath = "kyber/characters/" .. fileName
+        local fileName = steamID .. "_" .. character.name .. ".json"
+        local charData = util.TableToJSON(character)
         
-        -- Add metadata
-        characterData.steamID = steamID
-        characterData.created = characterData.created or os.time()
-        characterData.lastPlayed = os.time()
+        file.Write("kyber/characters/" .. fileName, charData)
+    end
+    
+    -- Create new character
+    function KYBER.Character:CreateCharacter(ply, character)
+        -- Validate character data
+        if not character or not character.name then
+            return false, "Invalid character data"
+        end
         
-        -- Save to file
-        file.Write(filePath, util.TableToJSON(characterData))
+        -- Check if player already has a character
+        local hasChar = self:HasCharacter(ply)
+        if hasChar then
+            return false, "Player already has a character"
+        end
         
-        -- Store current character data on player
-        ply.KyberCharacter = characterData
-        
-        -- Set networked vars for other systems
-        ply:SetNWString("kyber_name", characterData.name)
-        ply:SetNWString("kyber_species", characterData.species)
-        ply:SetNWString("kyber_model", characterData.model)
-        
-        print("[Kyber] Saved character '" .. characterData.name .. "' for " .. ply:Nick())
-        
+        -- Save character
+        self:SaveCharacter(ply, character)
         return true
     end
+    
+    -- Delete character
+    function KYBER.Character:DeleteCharacter(ply, charName)
+        local steamID = ply:SteamID64()
+        local fileName = steamID .. "_" .. charName .. ".json"
+        
+        if file.Exists("kyber/characters/" .. fileName, "DATA") then
+            file.Delete("kyber/characters/" .. fileName)
+            return true
+        end
+        
+        return false
+    end
+    
+    -- Network receivers
+    net.Receive("Kyber_Character_CreateCharacter", function(len, ply)
+        local character = net.ReadTable()
+        local success, err = KYBER.Character:CreateCharacter(ply, character)
+        
+        if success then
+            -- Notify client
+            net.Start("Kyber_Character_CreateSuccess")
+            net.Send(ply)
+        else
+            -- Notify client of error
+            net.Start("Kyber_Character_CreateError")
+            net.WriteString(err)
+            net.Send(ply)
+        end
+    end)
+    
+    net.Receive("Kyber_Character_DeleteCharacter", function(len, ply)
+        local charName = net.ReadString()
+        local success = KYBER.Character:DeleteCharacter(ply, charName)
+        
+        if success then
+            -- Notify client
+            net.Start("Kyber_Character_DeleteSuccess")
+            net.Send(ply)
+        else
+            -- Notify client of error
+            net.Start("Kyber_Character_DeleteError")
+            net.WriteString("Failed to delete character")
+            net.Send(ply)
+        end
+    end)
     
     -- Apply character data to player
     function KYBER.Character:ApplyCharacter(ply, characterData)
@@ -224,94 +270,6 @@ if SERVER then
         
         return true
     end
-    
-    -- Delete character (for rerolling)
-    function KYBER.Character:DeleteCharacter(ply)
-        local steamID = ply:SteamID64()
-        local hasChar, files = self:HasCharacter(ply)
-        
-        if hasChar then
-            for _, fileName in ipairs(files) do
-                file.Delete("kyber/characters/" .. fileName)
-            end
-            
-            -- Clear player data
-            ply.KyberCharacter = nil
-            ply:SetNWString("kyber_name", "")
-            ply:SetNWString("kyber_species", "")
-            ply:SetNWString("kyber_model", "")
-            
-            print("[Kyber] Deleted character data for " .. ply:Nick())
-            return true
-        end
-        
-        return false
-    end
-    
-    -- Network handlers
-    net.Receive("Kyber_Character_CreateCharacter", function(len, ply)
-        local characterData = net.ReadTable()
-        
-        -- Validate the character data
-        local nameValid, nameError = KYBER.Character:ValidateName(characterData.name)
-        if not nameValid then
-            ply:ChatPrint("Character creation failed: " .. nameError)
-            return
-        end
-        
-        -- Validate model
-        if not KYBER.Character.Config.models[characterData.model] then
-            ply:ChatPrint("Character creation failed: Invalid model selected")
-            return
-        end
-        
-        -- Save character
-        local success = KYBER.Character:SaveCharacter(ply, characterData)
-        
-        if success then
-            -- Apply character to player
-            KYBER.Character:ApplyCharacter(ply, characterData)
-            
-            ply:ChatPrint("Character '" .. characterData.name .. "' created successfully!")
-            
-            -- Initialize other character systems
-            timer.Simple(1, function()
-                if IsValid(ply) then
-                    -- Initialize inventory, reputation, etc.
-                    if KYBER.Inventory then KYBER.Inventory:Initialize(ply) end
-                    if KYBER.Reputation then KYBER.Reputation:Initialize(ply) end
-                    if KYBER.Medical then KYBER.Medical:Initialize(ply) end
-                    if KYBER.Banking then KYBER.Banking:Initialize(ply) end
-                    if KYBER.Equipment then KYBER.Equipment:Initialize(ply) end
-                    if KYBER.Crafting then KYBER.Crafting:Initialize(ply) end
-                end
-            end)
-        else
-            ply:ChatPrint("Character creation failed: Could not save character data")
-        end
-    end)
-    
-    net.Receive("Kyber_Character_ValidateName", function(len, ply)
-        local name = net.ReadString()
-        local isValid, error = KYBER.Character:ValidateName(name)
-        
-        net.Start("Kyber_Character_NameValidationResult")
-        net.WriteBool(isValid)
-        net.WriteString(error or "")
-        net.Send(ply)
-    end)
-    
-    net.Receive("Kyber_Character_RequestReroll", function(len, ply)
-        -- Delete existing character and trigger creation
-        KYBER.Character:DeleteCharacter(ply)
-        
-        -- Send them to character creation
-        net.Start("Kyber_Character_OpenCreation")
-        net.WriteTable(KYBER.Character.Config.models)
-        net.Send(ply)
-        
-        ply:ChatPrint("Character data cleared. Creating new character...")
-    end)
     
     -- Player spawn handling
     hook.Add("PlayerInitialSpawn", "KyberCharacterCheck", function(ply)

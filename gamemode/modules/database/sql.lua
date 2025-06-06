@@ -159,40 +159,77 @@ end
 
 -- Execute a query immediately
 function KYBER.SQL.Query(query, callback, errorCallback)
-    if not query then
-        KYBER.LogError("Invalid query")
-        if errorCallback then errorCallback("Invalid query") end
-        return false
-    end
+    -- Add timeout
+    local timeout = timer.Simple(30, function()
+        if errorCallback then
+            errorCallback("Query timeout")
+        end
+    end)
     
-    -- Get connection
+    -- Add connection pool
     local conn = KYBER.SQL.GetConnection()
     if not conn then
-        KYBER.LogError("No database connection available")
-        if errorCallback then errorCallback("No database connection available") end
+        if errorCallback then
+            errorCallback("No database connection available")
+        end
         return false
     end
     
-    -- Execute query
-    local queryObj = conn:query(query)
+    -- Execute query with error handling
+    local success, result = pcall(function()
+        return conn:query(query)
+    end)
     
-    function queryObj:onSuccess(data)
-        KYBER.SQL.ReleaseConnection(conn)
-        if callback then
-            callback(data)
-        end
-    end
+    -- Cleanup
+    KYBER.SQL.ReleaseConnection(conn)
+    timer.Remove(timeout)
     
-    function queryObj:onError(err)
-        KYBER.SQL.ReleaseConnection(conn)
-        KYBER.LogError("Query error: " .. err)
+    if not success then
         if errorCallback then
-            errorCallback(err)
+            errorCallback(result)
+        end
+        return false
+    end
+    
+    if callback then
+        callback(result)
+    end
+    
+    return true
+end
+
+-- Execute a transaction
+function KYBER.SQL.Transaction(queries, callback, errorCallback)
+    local conn = KYBER.SQL.GetConnection()
+    if not conn then
+        if errorCallback then
+            errorCallback("No database connection available")
+        end
+        return false
+    end
+    
+    -- Start transaction
+    conn:query("START TRANSACTION")
+    
+    local success = true
+    for _, query in ipairs(queries) do
+        local result = conn:query(query)
+        if not result then
+            success = false
+            break
         end
     end
     
-    queryObj:start()
-    return true
+    if success then
+        conn:query("COMMIT")
+        if callback then callback() end
+    else
+        conn:query("ROLLBACK")
+        if errorCallback then errorCallback("Transaction failed") end
+    end
+    
+    KYBER.SQL.ReleaseConnection(conn)
+    return success
 end
 
 -- Prepare a query

@@ -211,24 +211,43 @@ if CLIENT then
 end
 
 if SERVER then
-    -- Network lottery status to players
-    util.AddNetworkString("Kyber_ForceLottery_RequestStatus")
+    -- Register network strings
+    KYBER.Management.Network:Register("Kyber_ForceLottery_RequestStatus")
+    KYBER.Management.Network:Register("Kyber_ForceLottery_Status")
     
     net.Receive("Kyber_ForceLottery_Status", function(len, ply)
-        -- Send current lottery status
-        net.Start("Kyber_ForceLottery_Status")
-        net.WriteInt(KYBER.ForceLottery.NextLotteryTime or 0, 32)
-        net.WriteTable(KYBER.ForceLottery.CurrentParticipants or {})
-        net.Send(ply)
+        local success, err = pcall(function()
+            -- Send current lottery status
+            net.Start("Kyber_ForceLottery_Status")
+            net.WriteInt(KYBER.ForceLottery.NextLotteryTime or 0, 32)
+            net.WriteTable(KYBER.ForceLottery.CurrentParticipants or {})
+            net.Send(ply)
+        end)
+        
+        if not success then
+            KYBER.Management.ErrorHandler:Handle(err, "Failed to send lottery status to " .. ply:SteamID64())
+        end
     end)
     
     -- Update all clients when lottery changes
-    hook.Add("Kyber_ForceLottery_Updated", "BroadcastStatus", function()
-        net.Start("Kyber_ForceLottery_Status")
-        net.WriteInt(KYBER.ForceLottery.NextLotteryTime or 0, 32)
-        net.WriteTable(KYBER.ForceLottery.CurrentParticipants or {})
-        net.Broadcast()
+    KYBER.Management.Hooks:Add("Kyber_ForceLottery_Updated", "BroadcastStatus", function()
+        local success, err = pcall(function()
+            net.Start("Kyber_ForceLottery_Status")
+            net.WriteInt(KYBER.ForceLottery.NextLotteryTime or 0, 32)
+            net.WriteTable(KYBER.ForceLottery.CurrentParticipants or {})
+            net.Broadcast()
+        end)
+        
+        if not success then
+            KYBER.Management.ErrorHandler:Handle(err, "Failed to broadcast lottery status")
+        end
     end)
+end
+
+function KYBER.ForceLottery:Cleanup()
+    if SERVER then
+        KYBER.Management.Hooks:Remove("BroadcastStatus")
+    end
 end
 
 -- Add visual effects for Force sensitive players
