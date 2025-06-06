@@ -1,11 +1,9 @@
 -- kyber/modules/admin/commands.lua
--- Server-side admin command handlers
+KYBER.Admin = KYBER.Admin or {}
+KYBER.Admin.Commands = {}
 
 if SERVER then
-    KYBER.Admin = KYBER.Admin or {}
-    KYBER.Admin.Commands = {}
-    
-    -- Command handler system
+    -- Command registration system
     function KYBER.Admin:RegisterCommand(name, permission, func, description)
         self.Commands[name] = {
             permission = permission,
@@ -13,33 +11,33 @@ if SERVER then
             description = description or "No description"
         }
     end
-    
-    function KYBER.Admin:ExecuteCommand(admin, commandName, args)
-        local command = self.Commands[commandName]
-        if not command then
-            admin:ChatPrint("Unknown command: " .. commandName)
-            return
+
+    -- Execute command
+    function KYBER.Admin:ExecuteCommand(admin, command, args)
+        local cmd = self.Commands[command]
+        if not cmd then
+            admin:ChatPrint("Unknown command: " .. command)
+            return false
         end
-        
-        -- Check permission
-        if not self:HasPermission(admin, command.permission) then
-            admin:ChatPrint("Access denied: Insufficient permissions")
-            self:LogAction(admin, "DENIED", commandName .. " - insufficient permissions")
-            return
+
+        -- Check permissions
+        if not self:HasPermission(admin, cmd.permission) then
+            admin:ChatPrint("Access denied: " .. command)
+            return false
         end
-        
-        -- Execute command
-        local success, result = pcall(command.func, admin, args)
-        
-        if not success then
-            admin:ChatPrint("Command failed: " .. result)
-            self:LogAction(admin, "ERROR", commandName .. " - " .. result)
+
+        -- Execute and log
+        local success, result = pcall(cmd.func, admin, args)
+        if success then
+            self:LogAction(admin, command:upper(), result or "executed")
+            return true
         else
-            self:LogAction(admin, string.upper(commandName), result or "executed")
+            admin:ChatPrint("Command error: " .. tostring(result))
+            return false
         end
     end
-    
-    -- Player Management Commands
+
+    -- Basic Commands
     KYBER.Admin:RegisterCommand("goto", "tp_to_player", function(admin, args)
         local userid = tonumber(args[1])
         local target = Player(userid)
@@ -53,7 +51,7 @@ if SERVER then
         admin:ChatPrint("Teleported to " .. target:Nick())
         return "teleported to " .. target:Nick()
     end, "Teleport to a player")
-    
+
     KYBER.Admin:RegisterCommand("bring", "bring", function(admin, args)
         local userid = tonumber(args[1])
         local target = Player(userid)
@@ -68,7 +66,54 @@ if SERVER then
         target:ChatPrint("You were brought by " .. admin:Nick())
         return "brought " .. target:Nick()
     end, "Bring a player to you")
-    
+
+    KYBER.Admin:RegisterCommand("kick", "kick", function(admin, args)
+        local userid = tonumber(args[1])
+        local reason = args[2] or "Kicked by admin"
+        local target = Player(userid)
+        
+        if not IsValid(target) then
+            admin:ChatPrint("Invalid target")
+            return
+        end
+        
+        -- Notify server
+        for _, ply in ipairs(player.GetAll()) do
+            ply:ChatPrint("[ADMIN] " .. target:Nick() .. " was kicked by " .. admin:Nick() .. " (" .. reason .. ")")
+        end
+        
+        target:Kick(reason)
+        return "kicked " .. target:Nick() .. " for: " .. reason
+    end, "Kick a player")
+
+    KYBER.Admin:RegisterCommand("ban", "ban", function(admin, args)
+        local userid = tonumber(args[1])
+        local reason = args[2] or "Banned by admin"
+        local duration = tonumber(args[3]) or 0 -- 0 = permanent
+        local target = Player(userid)
+        
+        if not IsValid(target) then
+            admin:ChatPrint("Invalid target")
+            return
+        end
+        
+        local steamID = target:SteamID64()
+        local name = target:Nick()
+        local expiry = duration > 0 and (os.time() + duration) or 0
+        
+        -- Add to ban list
+        KYBER.Admin:AddBan(steamID, name, reason, expiry, admin:Nick())
+        
+        -- Notify server
+        local durationText = duration > 0 and string.FormattedTime(duration, "%02i:%02i:%02i") or "permanently"
+        for _, ply in ipairs(player.GetAll()) do
+            ply:ChatPrint("[ADMIN] " .. name .. " was banned " .. durationText .. " by " .. admin:Nick() .. " (" .. reason .. ")")
+        end
+        
+        target:Kick("Banned: " .. reason)
+        return "banned " .. name .. " for: " .. reason
+    end, "Ban a player")
+
     KYBER.Admin:RegisterCommand("spectate", "spectate", function(admin, args)
         local userid = tonumber(args[1])
         local target = Player(userid)
@@ -153,84 +198,15 @@ if SERVER then
         })
         
         -- Notify
-        target:ChatPrint("WARNING: " .. reason .. " (Issued by " .. admin:Nick() .. ")")
         admin:ChatPrint("Warned " .. target:Nick() .. " for: " .. reason)
-        
-        -- Broadcast to other admins
-        for _, ply in ipairs(player.GetAll()) do
-            if KYBER.Admin:IsAdmin(ply) and ply ~= admin then
-                ply:ChatPrint("[ADMIN] " .. admin:Nick() .. " warned " .. target:Nick() .. " for: " .. reason)
-            end
-        end
+        target:ChatPrint("[WARNING] You have been warned by " .. admin:Nick() .. " for: " .. reason)
         
         return "warned " .. target:Nick() .. " for: " .. reason
     end, "Warn a player")
-    
-    KYBER.Admin:RegisterCommand("kick", "kick", function(admin, args)
-        local userid = tonumber(args[1])
-        local reason = args[2] or "No reason specified"
-        local target = Player(userid)
-        
-        if not IsValid(target) then
-            admin:ChatPrint("Invalid target")
-            return
-        end
-        
-        if KYBER.Admin:GetLevel(target) >= KYBER.Admin:GetLevel(admin) then
-            admin:ChatPrint("Cannot kick player with equal or higher admin level")
-            return
-        end
-        
-        -- Broadcast kick
-        for _, ply in ipairs(player.GetAll()) do
-            ply:ChatPrint("[ADMIN] " .. target:Nick() .. " was kicked by " .. admin:Nick() .. " (" .. reason .. ")")
-        end
-        
-        target:Kick(reason)
-        return "kicked " .. target:Nick() .. " for: " .. reason
-    end, "Kick a player")
-    
-    KYBER.Admin:RegisterCommand("ban", "ban", function(admin, args)
-        local userid = tonumber(args[1])
-        local duration = tonumber(args[2]) or 0 -- 0 = permanent
-        local reason = args[3] or "No reason specified"
-        local target = Player(userid)
-        
-        if not IsValid(target) then
-            admin:ChatPrint("Invalid target")
-            return
-        end
-        
-        if KYBER.Admin:GetLevel(target) >= KYBER.Admin:GetLevel(admin) then
-            admin:ChatPrint("Cannot ban player with equal or higher admin level")
-            return
-        end
-        
-        -- Check if trying to permaban without permission
-        if duration == 0 and not KYBER.Admin:HasPermission(admin, "ban_permanent") then
-            admin:ChatPrint("You don't have permission for permanent bans")
-            return
-        end
-        
-        local steamID = target:SteamID64()
-        local expiry = duration > 0 and (os.time() + duration * 60) or 0
-        
-        -- Store ban
-        KYBER.Admin:AddBan(steamID, target:Nick(), reason, expiry, admin:Nick())
-        
-        -- Broadcast ban
-        local durationText = duration > 0 and string.NiceTime(duration * 60) or "permanently"
-        for _, ply in ipairs(player.GetAll()) do
-            ply:ChatPrint("[ADMIN] " .. target:Nick() .. " was banned " .. durationText .. " by " .. admin:Nick() .. " (" .. reason .. ")")
-        end
-        
-        target:Kick("BANNED: " .. reason .. (duration > 0 and " (Duration: " .. durationText .. ")" or " (Permanent)"))
-        return "banned " .. target:Nick() .. " for " .. durationText .. ": " .. reason
-    end, "Ban a player")
-    
+
     KYBER.Admin:RegisterCommand("jail", "jail", function(admin, args)
         local userid = tonumber(args[1])
-        local duration = tonumber(args[2]) or 5
+        local duration = tonumber(args[2]) or 5 -- minutes
         local target = Player(userid)
         
         if not IsValid(target) then
@@ -238,31 +214,33 @@ if SERVER then
             return
         end
         
-        -- Store original position
-        target.KyberJailReturn = target:GetPos()
+        -- Store original position and restrict movement
+        target.KyberJailData = {
+            originalPos = target:GetPos(),
+            endTime = CurTime() + (duration * 60),
+            admin = admin:Nick()
+        }
         
-        -- Teleport to jail (you'll need to set this position for your map)
-        local jailPos = Vector(0, 0, 0) -- Change this to your jail coordinates
-        target:SetPos(jailPos)
+        -- Freeze and move to jail area (customize coordinates as needed)
+        target:SetPos(Vector(0, 0, 100)) -- Replace with actual jail coordinates
         target:SetMoveType(MOVETYPE_NONE)
         
-        -- Create jail timer
+        -- Set timer to release
         timer.Create("KyberJail_" .. target:SteamID64(), duration * 60, 1, function()
-            if IsValid(target) then
+            if IsValid(target) and target.KyberJailData then
+                target:SetPos(target.KyberJailData.originalPos)
                 target:SetMoveType(MOVETYPE_WALK)
-                if target.KyberJailReturn then
-                    target:SetPos(target.KyberJailReturn)
-                    target.KyberJailReturn = nil
-                end
-                target:ChatPrint("You have been released from jail")
+                target.KyberJailData = nil
+                target:ChatPrint("You have been released from jail.")
             end
         end)
         
-        target:ChatPrint("You have been jailed for " .. duration .. " minutes by " .. admin:Nick())
         admin:ChatPrint("Jailed " .. target:Nick() .. " for " .. duration .. " minutes")
+        target:ChatPrint("You have been jailed by " .. admin:Nick() .. " for " .. duration .. " minutes")
+        
         return "jailed " .. target:Nick() .. " for " .. duration .. " minutes"
     end, "Jail a player")
-    
+
     KYBER.Admin:RegisterCommand("freeze", "freeze", function(admin, args)
         local userid = tonumber(args[1])
         local target = Player(userid)
@@ -274,18 +252,18 @@ if SERVER then
         
         if target:GetMoveType() == MOVETYPE_NONE then
             target:SetMoveType(MOVETYPE_WALK)
-            target:ChatPrint("You have been unfrozen by " .. admin:Nick())
             admin:ChatPrint("Unfroze " .. target:Nick())
+            target:ChatPrint("You have been unfrozen by " .. admin:Nick())
             return "unfroze " .. target:Nick()
         else
             target:SetMoveType(MOVETYPE_NONE)
-            target:ChatPrint("You have been frozen by " .. admin:Nick())
             admin:ChatPrint("Froze " .. target:Nick())
+            target:ChatPrint("You have been frozen by " .. admin:Nick())
             return "froze " .. target:Nick()
         end
     end, "Freeze/unfreeze a player")
-    
-    -- Character Management Commands
+
+    -- Economy Commands
     KYBER.Admin:RegisterCommand("give_credits", "give_credits", function(admin, args)
         local userid = tonumber(args[1])
         local amount = tonumber(args[2]) or 1000
@@ -296,193 +274,22 @@ if SERVER then
             return
         end
         
-        local current = KYBER:GetPlayerData(target, "credits") or 0
-        KYBER:SetPlayerData(target, "credits", current + amount)
+        -- Use economy system if available
+        if KYBER.Economy then
+            KYBER.Economy:AddCredits(target, amount)
+        else
+            -- Fallback to player data
+            local credits = KYBER:GetPlayerData(target, "credits") or 0
+            KYBER:SetPlayerData(target, "credits", credits + amount)
+        end
         
-        target:ChatPrint("You received " .. amount .. " credits from " .. admin:Nick())
         admin:ChatPrint("Gave " .. amount .. " credits to " .. target:Nick())
+        target:ChatPrint("You received " .. amount .. " credits from " .. admin:Nick())
+        
         return "gave " .. amount .. " credits to " .. target:Nick()
     end, "Give credits to a player")
-    
-    KYBER.Admin:RegisterCommand("set_faction", "manage_factions", function(admin, args)
-        local userid = tonumber(args[1])
-        local factionID = args[2]
-        local target = Player(userid)
-        
-        if not IsValid(target) then
-            admin:ChatPrint("Invalid target")
-            return
-        end
-        
-        if factionID == "" then factionID = nil end
-        
-        local oldFaction = target:GetNWString("kyber_faction", "")
-        KYBER:SetFaction(target, factionID)
-        
-        local factionName = "None"
-        if factionID and KYBER.Factions[factionID] then
-            factionName = KYBER.Factions[factionID].name
-        end
-        
-        target:ChatPrint("Your faction has been set to: " .. factionName)
-        admin:ChatPrint("Set " .. target:Nick() .. "'s faction to: " .. factionName)
-        return "set " .. target:Nick() .. "'s faction to " .. factionName
-    end, "Set a player's faction")
-    
-    KYBER.Admin:RegisterCommand("rename", "edit_characters", function(admin, args)
-        local userid = tonumber(args[1])
-        local newName = args[2]
-        local target = Player(userid)
-        
-        if not IsValid(target) or not newName then
-            admin:ChatPrint("Invalid target or name")
-            return
-        end
-        
-        local oldName = target:GetNWString("kyber_name", target:Nick())
-        target:SetNWString("kyber_name", newName)
-        
-        target:ChatPrint("Your character name has been changed to: " .. newName)
-        admin:ChatPrint("Renamed " .. oldName .. " to " .. newName)
-        return "renamed " .. oldName .. " to " .. newName
-    end, "Rename a player's character")
-    
-    -- Admin Management Commands
-    KYBER.Admin:RegisterCommand("add_admin", "promote_admin", function(admin, args)
-        local steamID = args[1]
-        local name = args[2]
-        local level = tonumber(args[3])
-        
-        if not steamID or not name or not level then
-            admin:ChatPrint("Usage: steamID, name, level")
-            return
-        end
-        
-        if level >= KYBER.Admin:GetLevel(admin) then
-            admin:ChatPrint("Cannot promote to equal or higher level than yourself")
-            return
-        end
-        
-        local success, err = KYBER.Admin:AddAdmin(steamID, name, level, admin:Nick())
-        if success then
-            admin:ChatPrint("Successfully promoted " .. name .. " to level " .. level)
-            return "promoted " .. name .. " to admin level " .. level
-        else
-            admin:ChatPrint("Failed: " .. err)
-            return
-        end
-    end, "Add a new admin")
-    
-    KYBER.Admin:RegisterCommand("remove_admin", "promote_admin", function(admin, args)
-        local steamID = args[1]
-        
-        if not steamID then
-            admin:ChatPrint("Usage: steamID")
-            return
-        end
-        
-        local adminData = KYBER.Admin.Admins[steamID]
-        if not adminData then
-            admin:ChatPrint("Player is not an admin")
-            return
-        end
-        
-        if adminData.level >= KYBER.Admin:GetLevel(admin) then
-            admin:ChatPrint("Cannot demote admin with equal or higher level")
-            return
-        end
-        
-        local success, err = KYBER.Admin:RemoveAdmin(steamID, admin:Nick())
-        if success then
-            admin:ChatPrint("Successfully demoted " .. adminData.name)
-            return "demoted " .. adminData.name .. " from admin"
-        else
-            admin:ChatPrint("Failed: " .. err)
-            return
-        end
-    end, "Remove an admin")
-    
-    -- Server Management Commands
-    KYBER.Admin:RegisterCommand("cleanup_props", "spawn_props", function(admin, args)
-        local count = 0
-        for _, ent in ipairs(ents.FindByClass("prop_*")) do
-            if IsValid(ent) then
-                ent:Remove()
-                count = count + 1
-            end
-        end
-        
-        for _, ply in ipairs(player.GetAll()) do
-            ply:ChatPrint("[ADMIN] " .. admin:Nick() .. " cleaned up " .. count .. " props")
-        end
-        
-        return "cleaned up " .. count .. " props"
-    end, "Clean up all props")
-    
-    KYBER.Admin:RegisterCommand("restart_map", "restart_round", function(admin, args)
-        for _, ply in ipairs(player.GetAll()) do
-            ply:ChatPrint("[ADMIN] Map restart initiated by " .. admin:Nick())
-        end
-        
-        timer.Simple(5, function()
-            RunConsoleCommand("changelevel", game.GetMap())
-        end)
-        
-        return "initiated map restart"
-    end, "Restart the current map")
-    
-    KYBER.Admin:RegisterCommand("change_map", "server_config", function(admin, args)
-        local mapName = args[1]
-        
-        if not mapName then
-            admin:ChatPrint("Usage: map_name")
-            return
-        end
-        
-        for _, ply in ipairs(player.GetAll()) do
-            ply:ChatPrint("[ADMIN] Map changing to " .. mapName .. " by " .. admin:Nick())
-        end
-        
-        timer.Simple(5, function()
-            RunConsoleCommand("changelevel", mapName)
-        end)
-        
-        return "changing map to " .. mapName
-    end, "Change to a different map")
-    
-    -- Mass Actions
-    KYBER.Admin:RegisterCommand("freeze_all", "freeze", function(admin, args)
-        local count = 0
-        for _, ply in ipairs(player.GetAll()) do
-            if ply ~= admin and not KYBER.Admin:IsAdmin(ply) then
-                ply:SetMoveType(MOVETYPE_NONE)
-                count = count + 1
-            end
-        end
-        
-        for _, ply in ipairs(player.GetAll()) do
-            ply:ChatPrint("[ADMIN] All players frozen by " .. admin:Nick())
-        end
-        
-        return "froze " .. count .. " players"
-    end, "Freeze all non-admin players")
-    
-    KYBER.Admin:RegisterCommand("unfreeze_all", "freeze", function(admin, args)
-        local count = 0
-        for _, ply in ipairs(player.GetAll()) do
-            if ply:GetMoveType() == MOVETYPE_NONE then
-                ply:SetMoveType(MOVETYPE_WALK)
-                count = count + 1
-            end
-        end
-        
-        for _, ply in ipairs(player.GetAll()) do
-            ply:ChatPrint("[ADMIN] All players unfrozen by " .. admin:Nick())
-        end
-        
-        return "unfroze " .. count .. " players"
-    end, "Unfreeze all players")
-    
+
+    -- Mass Commands
     KYBER.Admin:RegisterCommand("heal_all", "heal", function(admin, args)
         for _, ply in ipairs(player.GetAll()) do
             ply:SetHealth(ply:GetMaxHealth())
@@ -517,6 +324,40 @@ if SERVER then
         admin:ChatPrint("Brought " .. count .. " players to your location")
         return "brought " .. count .. " players"
     end, "Bring all players to you")
+
+    KYBER.Admin:RegisterCommand("freeze_all", "freeze", function(admin, args)
+        local count = 0
+        for _, ply in ipairs(player.GetAll()) do
+            if ply ~= admin then
+                ply:SetMoveType(MOVETYPE_NONE)
+                count = count + 1
+            end
+        end
+        
+        for _, ply in ipairs(player.GetAll()) do
+            ply:ChatPrint("[ADMIN] All players frozen by " .. admin:Nick())
+        end
+        
+        admin:ChatPrint("Froze " .. count .. " players")
+        return "froze " .. count .. " players"
+    end, "Freeze all players")
+
+    KYBER.Admin:RegisterCommand("unfreeze_all", "freeze", function(admin, args)
+        local count = 0
+        for _, ply in ipairs(player.GetAll()) do
+            if ply:GetMoveType() == MOVETYPE_NONE then
+                ply:SetMoveType(MOVETYPE_WALK)
+                count = count + 1
+            end
+        end
+        
+        for _, ply in ipairs(player.GetAll()) do
+            ply:ChatPrint("[ADMIN] All players unfrozen by " .. admin:Nick())
+        end
+        
+        admin:ChatPrint("Unfroze " .. count .. " players")
+        return "unfroze " .. count .. " players"
+    end, "Unfreeze all players")
     
     KYBER.Admin:RegisterCommand("emergency_stop", "all_permissions", function(admin, args)
         -- Freeze everyone, god mode everyone, stop all timers
@@ -535,7 +376,36 @@ if SERVER then
         
         return "activated emergency stop"
     end, "Emergency stop all server activity")
-    
+
+    -- Server Management Commands
+    KYBER.Admin:RegisterCommand("cleanup_props", "spawn_props", function(admin, args)
+        local count = 0
+        for _, ent in ipairs(ents.GetAll()) do
+            if ent:GetClass() == "prop_physics" then
+                ent:Remove()
+                count = count + 1
+            end
+        end
+        
+        for _, ply in ipairs(player.GetAll()) do
+            ply:ChatPrint("[ADMIN] " .. count .. " props cleaned up by " .. admin:Nick())
+        end
+        
+        return "cleaned up " .. count .. " props"
+    end, "Clean up all props")
+
+    KYBER.Admin:RegisterCommand("restart_map", "manage_server", function(admin, args)
+        for _, ply in ipairs(player.GetAll()) do
+            ply:ChatPrint("[ADMIN] Map restart initiated by " .. admin:Nick())
+        end
+        
+        timer.Simple(5, function()
+            RunConsoleCommand("changelevel", game.GetMap())
+        end)
+        
+        return "initiated map restart"
+    end, "Restart the current map")
+
     -- Ban system
     KYBER.Admin.Bans = {}
     
@@ -547,6 +417,9 @@ if SERVER then
     end
     
     function KYBER.Admin:SaveBans()
+        if not file.Exists("kyber/admin", "DATA") then
+            file.CreateDir("kyber/admin")
+        end
         file.Write("kyber/admin/bans.json", util.TableToJSON(self.Bans))
     end
     
@@ -567,7 +440,7 @@ if SERVER then
         if not ban then return false end
         
         -- Check if ban expired
-        if ban.expiry > 0 and os.time() > ban.expiry then
+        if ban.expiry > 0 and ban.expiry < os.time() then
             self.Bans[steamID] = nil
             self:SaveBans()
             return false
@@ -575,69 +448,26 @@ if SERVER then
         
         return true, ban
     end
-    
-    function KYBER.Admin:RemoveBan(steamID)
-        self.Bans[steamID] = nil
-        self:SaveBans()
-    end
-    
-    -- Check bans on connect
-    hook.Add("CheckPassword", "KyberAdminBanCheck", function(steamID64, ipAddress, serverPassword, password, name)
+
+    -- Check bans on player connect
+    hook.Add("CheckPassword", "KyberBanCheck", function(steamID64, ipAddress, svPassword, clPassword, name)
         if KYBER.Admin:IsBanned(steamID64) then
-            local isBanned, ban = KYBER.Admin:IsBanned(steamID64)
+            local _, ban = KYBER.Admin:IsBanned(steamID64)
+            local reason = ban.reason or "No reason specified"
+            local expiry = ban.expiry > 0 and os.date("%c", ban.expiry) or "Never"
             
-            if isBanned then
-                local timeLeft = ban.expiry > 0 and string.NiceTime(ban.expiry - os.time()) or "Permanent"
-                return false, "BANNED: " .. ban.reason .. " (Time left: " .. timeLeft .. ")"
-            end
+            return false, "You are banned from this server.\nReason: " .. reason .. "\nExpires: " .. expiry
         end
     end)
-    
+
     -- Command execution hook
-    hook.Add("Kyber_Admin_ExecuteCommand", "KyberAdminCommandHandler", function(admin, command, args)
+    hook.Add("Kyber_Admin_ExecuteCommand", "KyberExecuteCommand", function(admin, command, args)
         KYBER.Admin:ExecuteCommand(admin, command, args)
     end)
-    
-    -- Initialize bans on server start
-    hook.Add("Initialize", "KyberAdminBansInit", function()
+
+    -- Initialize ban system
+    hook.Add("Initialize", "KyberAdminBans", function()
         KYBER.Admin:LoadBans()
     end)
-    
-    -- Console commands for emergency admin management
-    concommand.Add("kyber_emergency_admin", function(ply, cmd, args)
-        if IsValid(ply) then return end -- Console only
-        
-        if #args < 1 then
-            print("Usage: kyber_emergency_admin <steamid>")
-            return
-        end
-        
-        local steamID = args[1]
-        KYBER.Admin:AddAdmin(steamID, "Emergency Admin", 5, "CONSOLE")
-        print("Emergency admin granted to " .. steamID)
-    end)
-    
-    -- Help command
-    KYBER.Admin:RegisterCommand("help", "warn", function(admin, args)
-        admin:ChatPrint("=== Kyber Admin Commands ===")
-        
-        local level = KYBER.Admin:GetLevel(admin)
-        local availableCommands = {}
-        
-        for cmdName, cmdData in pairs(KYBER.Admin.Commands) do
-            local reqLevel = KYBER.Admin.Config.permissions[cmdData.permission]
-            if reqLevel and level >= reqLevel then
-                table.insert(availableCommands, cmdName .. " - " .. cmdData.description)
-            end
-        end
-        
-        table.sort(availableCommands)
-        
-        for _, cmd in ipairs(availableCommands) do
-            admin:ChatPrint("!" .. cmd)
-        end
-        
-        return "displayed help"
-    end, "Show available commands")
-    
+
 end

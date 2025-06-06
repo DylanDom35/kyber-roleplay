@@ -1,178 +1,143 @@
 -- kyber/modules/admin/ui.lua
--- Client-side admin panel UI
+KYBER.Admin = KYBER.Admin or {}
 
 if CLIENT then
-    KYBER.Admin = KYBER.Admin or {}
-    KYBER.Admin.Panel = nil
-    KYBER.Admin.Data = {}
-    
+    -- Network strings
+    net.Receive("Kyber_Admin_OpenPanel", function()
+        KYBER.Admin:OpenPanel()
+    end)
+
+    net.Receive("Kyber_Admin_UpdateData", function()
+        local dataType = net.ReadString()
+        local data = net.ReadTable()
+        KYBER.Admin:UpdatePanelData(dataType, data)
+    end)
+
+    -- Create main admin panel
     function KYBER.Admin:OpenPanel()
         if IsValid(self.Panel) then
             self.Panel:Remove()
-            return
         end
-        
-        -- Main admin panel styled like an Imperial Command Terminal
-        self.Panel = vgui.Create("DFrame")
-        self.Panel:SetSize(1200, 800)
-        self.Panel:Center()
-        self.Panel:SetTitle("")
-        self.Panel:SetDraggable(false)
-        self.Panel:ShowCloseButton(false)
-        self.Panel:MakePopup()
-        
-        -- Custom paint for Imperial theme
-        self.Panel.Paint = function(self, w, h)
-            -- Background
-            draw.RoundedBox(0, 0, 0, w, h, Color(10, 10, 15))
-            
-            -- Border
-            draw.RoundedBox(0, 0, 0, w, 40, Color(50, 50, 60))
-            draw.RoundedBox(0, 0, 0, w, 2, Color(100, 150, 255))
-            
-            -- Title
-            draw.SimpleText("IMPERIAL COMMAND TERMINAL", "DermaLarge", w/2, 20, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-            draw.SimpleText("ADMINISTRATIVE ACCESS GRANTED", "DermaDefault", w/2, 40, Color(100, 255, 100), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
-            
-            -- Classification
-            draw.SimpleText("CLASSIFIED", "DermaDefaultBold", 10, h - 20, Color(255, 100, 100))
-            draw.SimpleText("AUTHORIZED PERSONNEL ONLY", "DermaDefault", w - 10, h - 20, Color(255, 100, 100), TEXT_ALIGN_RIGHT)
+
+        local frame = vgui.Create("DFrame")
+        frame:SetSize(ScrW() * 0.8, ScrH() * 0.8)
+        frame:Center()
+        frame:SetTitle("Kyber Administration Panel")
+        frame:SetDeleteOnClose(true)
+        frame:MakePopup()
+        frame:SetSizable(true)
+
+        self.Panel = frame
+        self.Data = {}
+
+        -- Custom paint for dark theme
+        frame.Paint = function(self, w, h)
+            draw.RoundedBox(8, 0, 0, w, h, Color(20, 20, 25))
+            draw.RoundedBox(8, 2, 2, w-4, h-4, Color(30, 30, 35))
         end
-        
-        -- Close button (styled as power button)
-        local closeBtn = vgui.Create("DButton", self.Panel)
-        closeBtn:SetPos(self.Panel:GetWide() - 35, 5)
-        closeBtn:SetSize(30, 30)
-        closeBtn:SetText("")
-        
-        closeBtn.Paint = function(self, w, h)
-            local col = self:IsHovered() and Color(255, 100, 100) or Color(150, 150, 150)
-            draw.RoundedBox(15, 0, 0, w, h, col)
-            draw.SimpleText("X", "DermaDefaultBold", w/2, h/2, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        end
-        
-        closeBtn.DoClick = function()
-            self.Panel:Remove()
-        end
-        
-        -- Tab system
-        local sheet = vgui.Create("DPropertySheet", self.Panel)
+
+        -- Create property sheet
+        local sheet = vgui.Create("DPropertySheet", frame)
         sheet:Dock(FILL)
-        sheet:DockMargin(10, 50, 10, 30)
-        
-        -- Custom tab paint
+        sheet:DockMargin(10, 30, 10, 10)
+
+        -- Custom paint for property sheet
         sheet.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(20, 20, 25))
+            draw.RoundedBox(4, 0, 20, w, h-20, Color(15, 15, 20))
         end
-        
-        -- Player Management Tab
-        local playerPanel = vgui.Create("DPanel", sheet)
-        self:CreatePlayerPanel(playerPanel)
-        sheet:AddSheet("Personnel", playerPanel, "icon16/user.png")
-        
-        -- Admin Management Tab
-        local adminPanel = vgui.Create("DPanel", sheet)
-        self:CreateAdminPanel(adminPanel)
-        sheet:AddSheet("Command Staff", adminPanel, "icon16/shield.png")
-        
-        -- Server Tools Tab
-        local serverPanel = vgui.Create("DPanel", sheet)
-        self:CreateServerPanel(serverPanel)
-        sheet:AddSheet("Operations", serverPanel, "icon16/server.png")
-        
-        -- Logs Tab
-        local logsPanel = vgui.Create("DPanel", sheet)
-        self:CreateLogsPanel(logsPanel)
-        sheet:AddSheet("Intelligence", logsPanel, "icon16/book.png")
-        
-        -- Quick Actions Tab
-        local quickPanel = vgui.Create("DPanel", sheet)
-        self:CreateQuickPanel(quickPanel)
-        sheet:AddSheet("Quick Actions", quickPanel, "icon16/lightning.png")
-        
-        -- Load initial data
+
+        -- Create tabs
+        self:CreatePersonnelTab(sheet)
+        self:CreateAdminTab(sheet)
+        self:CreateServerTab(sheet)
+        self:CreateLogsTab(sheet)
+        self:CreateQuickActionsTab(sheet)
+
+        -- Request initial data
         self:RequestData("players")
         self:RequestData("admins")
         self:RequestData("logs")
-        
-        -- Update player list every 5 seconds
-        timer.Create("KyberAdminUpdate", 5, 0, function()
-            if IsValid(self.Panel) then
-                self:RequestData("players")
-            else
-                timer.Remove("KyberAdminUpdate")
-            end
-        end)
     end
-    
-    function KYBER.Admin:CreatePlayerPanel(parent)
-        parent.Paint = function(self, w, h)
+
+    function KYBER.Admin:CreatePersonnelTab(sheet)
+        local panel = vgui.Create("DPanel")
+        panel.Paint = function(self, w, h)
             draw.RoundedBox(4, 0, 0, w, h, Color(15, 15, 20))
         end
-        
+
         -- Search bar
-        local searchPanel = vgui.Create("DPanel", parent)
-        searchPanel:Dock(TOP)
-        searchPanel:SetTall(40)
-        searchPanel:DockMargin(10, 10, 10, 10)
-        searchPanel.Paint = function() end
+        local searchLabel = vgui.Create("DLabel", panel)
+        searchLabel:SetPos(10, 10)
+        searchLabel:SetSize(100, 20)
+        searchLabel:SetText("Search Players:")
+        searchLabel:SetTextColor(Color(255, 255, 255))
+
+        local searchEntry = vgui.Create("DTextEntry", panel)
+        searchEntry:SetPos(110, 10)
+        searchEntry:SetSize(200, 25)
+        searchEntry.OnChange = function()
+            panel:FilterPlayers(searchEntry:GetValue())
+        end
+        panel.searchEntry = searchEntry
+
+        -- Filter options
+        local factionFilter = vgui.Create("DComboBox", panel)
+        factionFilter:SetPos(320, 10)
+        factionFilter:SetSize(150, 25)
+        factionFilter:SetValue("All Factions")
+        factionFilter:AddChoice("All Factions")
         
-        local searchEntry = vgui.Create("DTextEntry", searchPanel)
-        searchEntry:Dock(LEFT)
-        searchEntry:SetWide(300)
-        searchEntry:SetPlaceholderText("Search personnel...")
-        
+        -- Add faction options if available
+        if KYBER.Factions then
+            for id, faction in pairs(KYBER.Factions) do
+                factionFilter:AddChoice(faction.name, id)
+            end
+        end
+
         -- Player list
-        local playerList = vgui.Create("DListView", parent)
-        playerList:Dock(FILL)
-        playerList:DockMargin(10, 0, 10, 10)
-        playerList:SetMultiSelect(false)
-        
-        -- Columns
+        local playerList = vgui.Create("DListView", panel)
+        playerList:SetPos(10, 50)
+        playerList:SetSize(panel:GetWide() - 20, panel:GetTall() - 60)
         playerList:AddColumn("Name")
         playerList:AddColumn("SteamID")
         playerList:AddColumn("Health")
         playerList:AddColumn("Faction")
         playerList:AddColumn("Admin Level")
-        
-        -- Custom paint for dark theme
-        playerList.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(25, 25, 30))
-        end
-        
-        -- Context menu
-        playerList.OnRowRightClick = function(self, lineID, line)
-            local steamID = line:GetValue(2)
-            local target = player.GetBySteamID64(steamID)
+
+        panel.playerList = playerList
+
+        -- Context menu for players
+        playerList.OnRowRightClick = function(lst, index, line)
+            local steamID = line:GetColumnText(2)
+            local target = nil
+            for _, ply in ipairs(player.GetAll()) do
+                if ply:SteamID64() == steamID then
+                    target = ply
+                    break
+                end
+            end
             
-            if IsValid(target) then
+            if target then
                 self:OpenPlayerContextMenu(target)
             end
         end
-        
-        parent.playerList = playerList
-        parent.searchEntry = searchEntry
-        
-        -- Search functionality
-        searchEntry.OnValueChange = function(self, value)
-            if parent.allPlayers then
-                self:FilterPlayers(value)
-            end
-        end
-        
-        parent.FilterPlayers = function(self, filter)
-            self.playerList:Clear()
+
+        -- Filter function
+        panel.FilterPlayers = function(self, searchText)
+            playerList:Clear()
             
-            for _, plyData in ipairs(self.allPlayers) do
-                if filter == "" or 
-                   string.find(string.lower(plyData.name), string.lower(filter)) or
-                   string.find(string.lower(plyData.faction), string.lower(filter)) then
-                    
-                    local line = self.playerList:AddLine(
+            local allPlayers = KYBER.Admin.Data.players or {}
+            for _, plyData in ipairs(allPlayers) do
+                local matchesSearch = searchText == "" or 
+                    string.find(plyData.name:lower(), searchText:lower()) or
+                    string.find(plyData.steamID:lower(), searchText:lower())
+                
+                if matchesSearch then
+                    local line = playerList:AddLine(
                         plyData.name,
                         plyData.steamID,
-                        plyData.health .. "/" .. (plyData.armor or 100),
-                        plyData.faction,
+                        plyData.health .. "/" .. (plyData.maxHealth or 100),
+                        plyData.faction or "None",
                         plyData.adminLevel > 0 and KYBER.Admin.Config.levels[plyData.adminLevel].name or "None"
                     )
                     
@@ -184,8 +149,165 @@ if CLIENT then
                 end
             end
         end
+
+        sheet:AddSheet("Personnel", panel, "icon16/group.png")
     end
-    
+
+    function KYBER.Admin:CreateAdminTab(sheet)
+        local panel = vgui.Create("DPanel")
+        panel.Paint = function(self, w, h)
+            draw.RoundedBox(4, 0, 0, w, h, Color(15, 15, 20))
+        end
+
+        -- Admin list
+        local adminList = vgui.Create("DListView", panel)
+        adminList:SetPos(10, 10)
+        adminList:SetSize(panel:GetWide() - 20, panel:GetTall() - 100)
+        adminList:AddColumn("Name")
+        adminList:AddColumn("SteamID")
+        adminList:AddColumn("Level")
+        adminList:AddColumn("Status")
+
+        panel.adminList = adminList
+
+        -- Context menu for admins
+        adminList.OnRowRightClick = function(lst, index, line)
+            local steamID = line:GetColumnText(2)
+            self:OpenAdminContextMenu(steamID)
+        end
+
+        -- Add admin button
+        local addBtn = vgui.Create("DButton", panel)
+        addBtn:SetPos(10, panel:GetTall() - 80)
+        addBtn:SetSize(100, 30)
+        addBtn:SetText("Add Admin")
+        addBtn.DoClick = function()
+            self:OpenAddAdminDialog()
+        end
+
+        -- Promote button
+        local promoteBtn = vgui.Create("DButton", panel)
+        promoteBtn:SetPos(120, panel:GetTall() - 80)
+        promoteBtn:SetSize(100, 30)
+        promoteBtn:SetText("Promote")
+        promoteBtn.DoClick = function()
+            local selected = adminList:GetSelectedLine()
+            if selected then
+                local steamID = adminList:GetLine(selected):GetColumnText(2)
+                self:OpenPromoteDialog(steamID)
+            end
+        end
+
+        sheet:AddSheet("Administration", panel, "icon16/shield.png")
+    end
+
+    function KYBER.Admin:CreateServerTab(sheet)
+        local panel = vgui.Create("DPanel")
+        self:CreateServerPanel(panel)
+        sheet:AddSheet("Server", panel, "icon16/server.png")
+    end
+
+    function KYBER.Admin:CreateLogsTab(sheet)
+        local panel = vgui.Create("DPanel")
+        panel.Paint = function(self, w, h)
+            draw.RoundedBox(4, 0, 0, w, h, Color(15, 15, 20))
+        end
+
+        -- Filter controls
+        local filterPanel = vgui.Create("DPanel", panel)
+        filterPanel:SetPos(10, 10)
+        filterPanel:SetSize(panel:GetWide() - 20, 40)
+        filterPanel.Paint = function(self, w, h)
+            draw.RoundedBox(4, 0, 0, w, h, Color(25, 25, 30))
+        end
+
+        -- Text filter
+        local textFilter = vgui.Create("DTextEntry", filterPanel)
+        textFilter:SetPos(10, 10)
+        textFilter:SetSize(200, 20)
+        textFilter:SetPlaceholderText("Search logs...")
+        panel.textFilter = textFilter
+
+        -- Action filter
+        local actionFilter = vgui.Create("DComboBox", filterPanel)
+        actionFilter:SetPos(220, 10)
+        actionFilter:SetSize(150, 20)
+        actionFilter:SetValue("All Actions")
+        actionFilter:AddChoice("All Actions")
+        actionFilter:AddChoice("BAN")
+        actionFilter:AddChoice("KICK")
+        actionFilter:AddChoice("WARN")
+        actionFilter:AddChoice("PROMOTE")
+        actionFilter:AddChoice("DEMOTE")
+        panel.actionFilter = actionFilter
+
+        -- Refresh button
+        local refreshBtn = vgui.Create("DButton", filterPanel)
+        refreshBtn:SetPos(380, 8)
+        refreshBtn:SetSize(80, 24)
+        refreshBtn:SetText("Refresh")
+        refreshBtn.DoClick = function()
+            panel:FilterLogs()
+        end
+
+        -- Logs list
+        local logsList = vgui.Create("DListView", panel)
+        logsList:SetPos(10, 60)
+        logsList:SetSize(panel:GetWide() - 20, panel:GetTall() - 70)
+        logsList:AddColumn("Time")
+        logsList:AddColumn("Admin")
+        logsList:AddColumn("Action")
+        logsList:AddColumn("Details")
+        logsList:AddColumn("Target")
+
+        panel.logsList = logsList
+
+        -- Filter function
+        panel.FilterLogs = function(self)
+            logsList:Clear()
+            
+            local textFilter = self.textFilter:GetValue():lower()
+            local actionFilter = self.actionFilter:GetValue()
+            
+            for _, log in ipairs(self.allLogs or {}) do
+                local passTextFilter = textFilter == "" or 
+                    string.find(log.admin:lower(), textFilter) or
+                    string.find(log.details:lower(), textFilter) or
+                    string.find((log.target or ""):lower(), textFilter)
+                
+                local passActionFilter = actionFilter == "All Actions" or log.action == actionFilter
+                
+                if passTextFilter and passActionFilter then
+                    local timeStr = os.date("%m/%d %H:%M", log.timestamp)
+                    local line = logsList:AddLine(
+                        timeStr,
+                        log.admin,
+                        log.action,
+                        log.details,
+                        log.target or ""
+                    )
+                    
+                    -- Color code by action type
+                    if log.action == "BAN" or log.action == "KICK" then
+                        line:SetTextColor(Color(255, 150, 150))
+                    elseif log.action == "PROMOTE" then
+                        line:SetTextColor(Color(150, 255, 150))
+                    elseif log.action == "DEMOTE" then
+                        line:SetTextColor(Color(255, 200, 150))
+                    end
+                end
+            end
+        end
+
+        sheet:AddSheet("Logs", panel, "icon16/script.png")
+    end
+
+    function KYBER.Admin:CreateQuickActionsTab(sheet)
+        local panel = vgui.Create("DPanel")
+        self:CreateQuickPanel(panel)
+        sheet:AddSheet("Quick Actions", panel, "icon16/lightning.png")
+    end
+
     function KYBER.Admin:OpenPlayerContextMenu(target)
         local menu = DermaMenu()
         
@@ -235,130 +357,82 @@ if CLIENT then
                 end
             )
         end)
+
+        menu:Open()
+    end
+
+    function KYBER.Admin:OpenBanDialog(target)
+        local frame = vgui.Create("DFrame")
+        frame:SetSize(400, 300)
+        frame:Center()
+        frame:SetTitle("Ban Player: " .. target:Nick())
+        frame:MakePopup()
+
+        -- Reason
+        local reasonLabel = vgui.Create("DLabel", frame)
+        reasonLabel:SetPos(10, 30)
+        reasonLabel:SetSize(100, 20)
+        reasonLabel:SetText("Reason:")
+
+        local reasonEntry = vgui.Create("DTextEntry", frame)
+        reasonEntry:SetPos(10, 50)
+        reasonEntry:SetSize(380, 100)
+        reasonEntry:SetMultiline(true)
+
+        -- Duration
+        local durationLabel = vgui.Create("DLabel", frame)
+        durationLabel:SetPos(10, 160)
+        durationLabel:SetSize(100, 20)
+        durationLabel:SetText("Duration:")
+
+        local durationCombo = vgui.Create("DComboBox", frame)
+        durationCombo:SetPos(10, 180)
+        durationCombo:SetSize(200, 25)
+        durationCombo:SetValue("Permanent")
+        durationCombo:AddChoice("Permanent", 0)
+        durationCombo:AddChoice("1 Hour", 3600)
+        durationCombo:AddChoice("1 Day", 86400)
+        durationCombo:AddChoice("1 Week", 604800)
+        durationCombo:AddChoice("1 Month", 2592000)
+
+        -- Buttons
+        local banBtn = vgui.Create("DButton", frame)
+        banBtn:SetPos(10, 220)
+        banBtn:SetSize(100, 30)
+        banBtn:SetText("Ban")
+        banBtn.DoClick = function()
+            local reason = reasonEntry:GetValue()
+            local _, duration = durationCombo:GetSelected()
+            
+            if reason == "" then
+                reason = "No reason specified"
+            end
+            
+            self:ExecuteCommand("ban", {target:UserID(), reason, duration or 0})
+            frame:Close()
+        end
+
+        local cancelBtn = vgui.Create("DButton", frame)
+        cancelBtn:SetPos(120, 220)
+        cancelBtn:SetSize(100, 30)
+        cancelBtn:SetText("Cancel")
+        cancelBtn.DoClick = function()
+            frame:Close()
+        end
+    end
+
+    function KYBER.Admin:OpenAdminContextMenu(steamID)
+        local menu = DermaMenu()
+        
+        menu:AddOption("View Profile", function()
+            gui.OpenURL("https://steamcommunity.com/profiles/" .. steamID)
+        end):SetIcon("icon16/user.png")
         
         menu:AddSpacer()
         
-        -- Character actions
-        local charMenu = menu:AddSubMenu("Character Actions")
-        charMenu:SetIcon("icon16/user_edit.png")
-        
-        charMenu:AddOption("Heal", function()
-            self:ExecuteCommand("heal", {target:UserID()})
-        end)
-        
-        charMenu:AddOption("Give Credits", function()
-            Derma_StringRequest("Credits", "Amount to give:", "1000",
-                function(text)
-                    self:ExecuteCommand("give_credits", {target:UserID(), tonumber(text) or 1000})
-                end
-            )
-        end)
-        
-        charMenu:AddOption("Set Faction", function()
-            self:OpenFactionDialog(target)
-        end)
-        
-        charMenu:AddOption("Force Rename", function()
-            Derma_StringRequest("Rename", "New character name:", target:GetNWString("kyber_name", ""),
-                function(text)
-                    self:ExecuteCommand("rename", {target:UserID(), text})
-                end
-            )
-        end)
-        
-        menu:Open()
-    end
-    
-    function KYBER.Admin:CreateAdminPanel(parent)
-        parent.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(15, 15, 20))
-        end
-        
-        -- Add admin section
-        local addPanel = vgui.Create("DPanel", parent)
-        addPanel:Dock(TOP)
-        addPanel:SetTall(100)
-        addPanel:DockMargin(10, 10, 10, 10)
-        
-        addPanel.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(25, 25, 30))
-            draw.SimpleText("Add Command Staff", "DermaDefaultBold", 10, 10, Color(255, 255, 255))
-        end
-        
-        local steamEntry = vgui.Create("DTextEntry", addPanel)
-        steamEntry:SetPos(10, 35)
-        steamEntry:SetSize(200, 25)
-        steamEntry:SetPlaceholderText("SteamID64")
-        
-        local nameEntry = vgui.Create("DTextEntry", addPanel)
-        nameEntry:SetPos(220, 35)
-        nameEntry:SetSize(150, 25)
-        nameEntry:SetPlaceholderText("Name")
-        
-        local levelSelect = vgui.Create("DComboBox", addPanel)
-        levelSelect:SetPos(380, 35)
-        levelSelect:SetSize(120, 25)
-        levelSelect:SetValue("Select Level")
-        
-        for level, data in pairs(KYBER.Admin.Config.levels) do
-            levelSelect:AddChoice(data.name, level)
-        end
-        
-        local addBtn = vgui.Create("DButton", addPanel)
-        addBtn:SetPos(510, 35)
-        addBtn:SetSize(100, 25)
-        addBtn:SetText("Promote")
-        
-        addBtn.DoClick = function()
-            local steamID = steamEntry:GetValue()
-            local name = nameEntry:GetValue()
-            local _, level = levelSelect:GetSelected()
-            
-            if steamID ~= "" and name ~= "" and level then
-                self:ExecuteCommand("add_admin", {steamID, name, level})
-                steamEntry:SetValue("")
-                nameEntry:SetValue("")
-                levelSelect:SetValue("Select Level")
-            else
-                Derma_Message("Please fill in all fields", "Error", "OK")
-            end
-        end
-        
-        -- Admin list
-        local adminList = vgui.Create("DListView", parent)
-        adminList:Dock(FILL)
-        adminList:DockMargin(10, 0, 10, 10)
-        adminList:SetMultiSelect(false)
-        
-        adminList:AddColumn("Name")
-        adminList:AddColumn("SteamID")
-        adminList:AddColumn("Level")
-        adminList:AddColumn("Status")
-        adminList:AddColumn("Promoted")
-        
-        adminList.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(25, 25, 30))
-        end
-        
-        -- Context menu for admin management
-        adminList.OnRowRightClick = function(self, lineID, line)
-            local steamID = line:GetValue(2)
-            self:OpenAdminContextMenu(steamID)
-        end
-        
-        parent.adminList = adminList
-    end
-    
-    function KYBER.Admin:OpenAdminContextMenu(steamID)
-        if KYBER.Admin.Config.superadmins[steamID] then
-            Derma_Message("Cannot modify superadmin", "Access Denied", "OK")
-            return
-        end
-        
-        local menu = DermaMenu()
-        
         menu:AddOption("Demote", function()
-            Derma_Query("Are you sure you want to demote this admin?", "Confirm Demotion",
+            Derma_Query("Remove admin privileges from this user?",
+                "Confirm Demotion",
                 "Yes", function()
                     self:ExecuteCommand("remove_admin", {steamID})
                 end,
@@ -372,7 +446,7 @@ if CLIENT then
         
         menu:Open()
     end
-    
+
     function KYBER.Admin:CreateServerPanel(parent)
         parent.Paint = function(self, w, h)
             draw.RoundedBox(4, 0, 0, w, h, Color(15, 15, 20))
@@ -441,7 +515,8 @@ if CLIENT then
             
             button.DoClick = function()
                 if btn.warning then
-                    Derma_Query("Are you sure? This action cannot be undone.", "Confirm Action",
+                    Derma_Query("Are you sure? This action cannot be undone.",
+                        "Confirm Action",
                         "Yes", function()
                             self:ExecuteCommand(btn.cmd, {})
                         end,
@@ -458,123 +533,8 @@ if CLIENT then
                 y = y + 40
             end
         end
-        
-        -- Entity cleanup section
-        local cleanupPanel = vgui.Create("DPanel", parent)
-        cleanupPanel:Dock(FILL)
-        cleanupPanel:DockMargin(10, 0, 10, 10)
-        
-        cleanupPanel.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(25, 25, 30))
-            draw.SimpleText("Entity Management", "DermaDefaultBold", 10, 10, Color(255, 255, 255))
-            
-            -- Entity counts
-            local props = #ents.FindByClass("prop_*")
-            local npcs = #ents.FindByClass("npc_*")
-            local vehicles = #ents.FindByClass("vehicle_*")
-            
-            draw.SimpleText("Props: " .. props, "DermaDefault", 10, 35, Color(200, 200, 200))
-            draw.SimpleText("NPCs: " .. npcs, "DermaDefault", 10, 55, Color(200, 200, 200))
-            draw.SimpleText("Vehicles: " .. vehicles, "DermaDefault", 10, 75, Color(200, 200, 200))
-        end
     end
-    
-    function KYBER.Admin:CreateLogsPanel(parent)
-        parent.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(15, 15, 20))
-        end
-        
-        -- Filter controls
-        local filterPanel = vgui.Create("DPanel", parent)
-        filterPanel:Dock(TOP)
-        filterPanel:SetTall(40)
-        filterPanel:DockMargin(10, 10, 10, 10)
-        filterPanel.Paint = function() end
-        
-        local filterEntry = vgui.Create("DTextEntry", filterPanel)
-        filterEntry:Dock(LEFT)
-        filterEntry:SetWide(200)
-        filterEntry:SetPlaceholderText("Filter logs...")
-        
-        local actionFilter = vgui.Create("DComboBox", filterPanel)
-        actionFilter:Dock(LEFT)
-        actionFilter:SetWide(120)
-        actionFilter:DockMargin(10, 0, 0, 0)
-        actionFilter:SetValue("All Actions")
-        actionFilter:AddChoice("All Actions")
-        actionFilter:AddChoice("KICK")
-        actionFilter:AddChoice("BAN")
-        actionFilter:AddChoice("PROMOTE")
-        actionFilter:AddChoice("DEMOTE")
-        actionFilter:AddChoice("TELEPORT")
-        
-        -- Logs list
-        local logsList = vgui.Create("DListView", parent)
-        logsList:Dock(FILL)
-        logsList:DockMargin(10, 0, 10, 10)
-        logsList:SetMultiSelect(false)
-        
-        logsList:AddColumn("Time")
-        logsList:AddColumn("Admin")
-        logsList:AddColumn("Action")
-        logsList:AddColumn("Details")
-        logsList:AddColumn("Target")
-        
-        logsList.Paint = function(self, w, h)
-            draw.RoundedBox(4, 0, 0, w, h, Color(25, 25, 30))
-        end
-        
-        parent.logsList = logsList
-        parent.filterEntry = filterEntry
-        parent.actionFilter = actionFilter
-        
-        -- Filter functionality
-        local function applyFilter()
-            if parent.allLogs then
-                parent:FilterLogs()
-            end
-        end
-        
-        filterEntry.OnValueChange = applyFilter
-        actionFilter.OnSelect = applyFilter
-        
-        parent.FilterLogs = function(self)
-            self.logsList:Clear()
-            
-            local textFilter = self.filterEntry:GetValue():lower()
-            local actionFilter = self.actionFilter:GetValue()
-            
-            for _, log in ipairs(self.allLogs) do
-                local passTextFilter = textFilter == "" or 
-                    string.find(log.admin:lower(), textFilter) or
-                    string.find(log.details:lower(), textFilter) or
-                    string.find((log.target or ""):lower(), textFilter)
-                
-                local passActionFilter = actionFilter == "All Actions" or log.action == actionFilter
-                
-                if passTextFilter and passActionFilter then
-                    local timeStr = os.date("%m/%d %H:%M", log.timestamp)
-                    local line = self.logsList:AddLine(
-                        timeStr,
-                        log.admin,
-                        log.action,
-                        log.details,
-                        log.target or ""
-                    )
-                    
-                    -- Color code by action type
-                    if log.action == "BAN" or log.action == "KICK" then
-                        line:SetTextColor(Color(255, 150, 150))
-                    elseif log.action == "PROMOTE" then
-                        line:SetTextColor(Color(150, 255, 150))
-                    elseif log.action == "DEMOTE" then
-                        line:SetTextColor(Color(255, 200, 150))
-                    end
-                end
-            end
-        end
-    end
-    
+
     function KYBER.Admin:CreateQuickPanel(parent)
         parent.Paint = function(self, w, h)
             draw.RoundedBox(4, 0, 0, w, h, Color(15, 15, 20))
@@ -674,162 +634,12 @@ if CLIENT then
             
         elseif dataType == "admins" then
             self.Data.admins = data
-            
             -- Update admin panel
-            local adminPanel = nil
-            for _, child in ipairs(self.Panel:GetChildren()) do
-                if child.GetActiveTab then
-                    for _, tab in ipairs(child:GetItems()) do
-                        if tab.Tab:GetText() == "Command Staff" then
-                            adminPanel = tab.Panel
-                            break
-                        end
-                    end
-                end
-            end
-            
-            if adminPanel and adminPanel.adminList then
-                adminPanel.adminList:Clear()
-                
-                for steamID, adminData in pairs(data) do
-                    local status = "Offline"
-                    local target = player.GetBySteamID64(steamID)
-                    if IsValid(target) then
-                        status = "Online"
-                    end
-                    
-                    local promoted = adminData.promoted and os.date("%m/%d/%Y", adminData.promoted) or "Unknown"
-                    local levelData = KYBER.Admin.Config.levels[adminData.level]
-                    
-                    local line = adminPanel.adminList:AddLine(
-                        adminData.name,
-                        steamID,
-                        levelData.name,
-                        status,
-                        promoted
-                    )
-                    
-                    line:SetTextColor(levelData.color)
-                end
-            end
             
         elseif dataType == "logs" then
             self.Data.logs = data
-            
             -- Update logs panel
-            local logsPanel = nil
-            for _, child in ipairs(self.Panel:GetChildren()) do
-                if child.GetActiveTab then
-                    for _, tab in ipairs(child:GetItems()) do
-                        if tab.Tab:GetText() == "Intelligence" then
-                            logsPanel = tab.Panel
-                            break
-                        end
-                    end
-                end
-            end
-            
-            if logsPanel then
-                logsPanel.allLogs = data
-                logsPanel:FilterLogs()
-            end
         end
     end
-    
-    function KYBER.Admin:OpenBanDialog(target)
-        local frame = vgui.Create("DFrame")
-        frame:SetSize(400, 300)
-        frame:Center()
-        frame:SetTitle("Ban Player")
-        frame:MakePopup()
-        
-        local reasonLabel = vgui.Create("DLabel", frame)
-        reasonLabel:SetPos(10, 30)
-        reasonLabel:SetText("Reason:")
-        reasonLabel:SizeToContents()
-        
-        local reasonEntry = vgui.Create("DTextEntry", frame)
-        reasonEntry:SetPos(10, 50)
-        reasonEntry:SetSize(380, 25)
-        
-        local timeLabel = vgui.Create("DLabel", frame)
-        timeLabel:SetPos(10, 85)
-        timeLabel:SetText("Duration:")
-        timeLabel:SizeToContents()
-        
-        local timeCombo = vgui.Create("DComboBox", frame)
-        timeCombo:SetPos(10, 105)
-        timeCombo:SetSize(200, 25)
-        timeCombo:SetValue("Select Duration")
-        timeCombo:AddChoice("5 minutes", 5)
-        timeCombo:AddChoice("1 hour", 60)
-        timeCombo:AddChoice("24 hours", 1440)
-        timeCombo:AddChoice("1 week", 10080)
-        timeCombo:AddChoice("1 month", 43200)
-        timeCombo:AddChoice("Permanent", 0)
-        
-        local banBtn = vgui.Create("DButton", frame)
-        banBtn:SetPos(10, 250)
-        banBtn:SetSize(100, 30)
-        banBtn:SetText("Ban Player")
-        
-        banBtn.DoClick = function()
-            local reason = reasonEntry:GetValue()
-            local _, duration = timeCombo:GetSelected()
-            
-            if reason ~= "" and duration then
-                self:ExecuteCommand("ban", {target:UserID(), duration, reason})
-                frame:Close()
-            else
-                Derma_Message("Please fill in all fields", "Error", "OK")
-            end
-        end
-        
-        local cancelBtn = vgui.Create("DButton", frame)
-        cancelBtn:SetPos(120, 250)
-        cancelBtn:SetSize(100, 30)
-        cancelBtn:SetText("Cancel")
-        cancelBtn.DoClick = function()
-            frame:Close()
-        end
-    end
-    
-    function KYBER.Admin:OpenFactionDialog(target)
-        local frame = vgui.Create("DFrame")
-        frame:SetSize(300, 200)
-        frame:Center()
-        frame:SetTitle("Set Faction")
-        frame:MakePopup()
-        
-        local factionCombo = vgui.Create("DComboBox", frame)
-        factionCombo:SetPos(10, 30)
-        factionCombo:SetSize(280, 25)
-        factionCombo:SetValue("Select Faction")
-        factionCombo:AddChoice("None", "")
-        
-        for factionID, faction in pairs(KYBER.Factions or {}) do
-            factionCombo:AddChoice(faction.name, factionID)
-        end
-        
-        local setBtn = vgui.Create("DButton", frame)
-        setBtn:SetPos(10, 150)
-        setBtn:SetSize(100, 30)
-        setBtn:SetText("Set Faction")
-        
-        setBtn.DoClick = function()
-            local _, factionID = factionCombo:GetSelected()
-            if factionID ~= nil then
-                self:ExecuteCommand("set_faction", {target:UserID(), factionID})
-                frame:Close()
-            end
-        end
-    end
-    
-    -- Keybind to open admin panel
-    hook.Add("PlayerButtonDown", "KyberAdminKey", function(ply, key)
-        if key == KEY_F2 and KYBER.Admin and LocalPlayer():GetNWInt("kyber_admin_level", 0) > 0 then
-            KYBER.Admin:OpenPanel()
-        end
-    end)
-    
+
 end

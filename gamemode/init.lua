@@ -13,6 +13,8 @@ local clientFiles = {
     
     -- Character system
     "modules/character/sheet.lua",
+    "modules/character/creation.lua",
+    "modules/character/selection.lua",
     
     -- Admin system
     "modules/admin/core.lua",
@@ -101,14 +103,18 @@ print("[Kyber] Loading core systems...")
 -- Load core systems first (order matters for dependencies)
 safeInclude("modules/playerdata/core.lua", "Player Data Core")
 
+-- Character system (load early for player initialization)
+safeInclude("modules/character/sheet.lua", "Character Sheet")
+safeInclude("modules/character/creation.lua", "Character Creation")
+safeInclude("modules/character/selection.lua", "Character Selection")
+
 -- Admin system (load early for debugging)
 safeInclude("modules/admin/core.lua", "Admin Core")
 safeInclude("modules/admin/commands.lua", "Admin Commands")
 safeInclude("modules/admin/integration.lua", "Admin Integration")
 safeInclude("modules/admin/panel.lua", "Admin Panel")
 
--- Character systems
-safeInclude("modules/character/sheet.lua", "Character Sheet")
+-- Spawn system
 safeInclude("modules/spawn/loadout.lua", "Spawn Loadout")
 
 print("[Kyber] Loading economy systems...")
@@ -186,24 +192,37 @@ print("[Kyber] Setting up gamemode hooks...")
 
 -- Essential gamemode hooks
 function GM:PlayerInitialSpawn(ply)
-    timer.Simple(1, function()
+    -- Prevent player from spawning immediately
+    ply:SetNoDraw(true)
+    ply:Freeze(true)
+    ply:SetMoveType(MOVETYPE_NONE)
+    
+    -- Show loading screen
+    net.Start("Kyber_ShowLoadingScreen")
+    net.Send(ply)
+    
+    -- Wait a moment before showing character selection
+    timer.Simple(2, function()
         if IsValid(ply) then
-            print("[Kyber] Player " .. ply:Nick() .. " spawned, initializing systems...")
+            -- Check if player has a character
+            local hasChar = KYBER.Character:HasCharacter(ply)
             
-            -- Initialize all player systems
-            if KYBER.PlayerData then
-                KYBER.PlayerData:Initialize(ply)
+            if hasChar then
+                -- Show character selection
+                KYBER.Character:OpenSelection(ply)
+            else
+                -- Show character creation
+                net.Start("Kyber_Character_OpenCreation")
+                net.Send(ply)
             end
-            
-            -- Set default character data
-            ply:SetNWString("kyber_name", ply:Nick())
-            ply:SetNWString("kyber_species", "Human")
-            ply:SetNWString("kyber_alignment", "Neutral")
         end
     end)
 end
 
 function GM:PlayerSpawn(ply)
+    -- Only give loadout if player has a character
+    if not ply.KyberCharacter then return end
+    
     -- Give default loadout
     timer.Simple(0.1, function()
         if IsValid(ply) then
@@ -237,95 +256,4 @@ function GM:PlayerSay(ply, text, teamChat)
     end
 end
 
--- F4 Menu
-if CLIENT then
-    hook.Add("PlayerButtonDown", "KyberF4Menu", function(ply, key)
-        if key == KEY_F4 and ply == LocalPlayer() then
-            if IsValid(KYBER.F4Menu) then
-                KYBER.F4Menu:Remove()
-                return
-            end
-            
-            KYBER.F4Menu = vgui.Create("DFrame")
-            KYBER.F4Menu:SetSize(800, 600)
-            KYBER.F4Menu:Center()
-            KYBER.F4Menu:SetTitle("Kyber Datapad")
-            KYBER.F4Menu:MakePopup()
-            
-            local sheet = vgui.Create("DPropertySheet", KYBER.F4Menu)
-            sheet:Dock(FILL)
-            sheet:DockMargin(10, 10, 10, 10)
-            
-            -- Character tab
-            local charPanel = vgui.Create("DPanel", sheet)
-            sheet:AddSheet("Character", charPanel, "icon16/user.png")
-            
-            -- Add other tabs via hooks
-            hook.Run("Kyber_Datapad_AddTabs", sheet)
-        end
-    end)
-end
-
--- Shutdown cleanup
-function GM:ShutDown()
-    print("[Kyber] Server shutting down, cleaning up...")
-    
-    -- Save all player data
-    for _, ply in ipairs(player.GetAll()) do
-        if KYBER.PlayerData then
-            KYBER.PlayerData:Save(ply)
-        end
-        if KYBER.Inventory then
-            KYBER.Inventory:Save(ply)
-        end
-        if KYBER.Banking then
-            KYBER.Banking:Save(ply)
-        end
-        if KYBER.Equipment then
-            KYBER.Equipment:Save(ply)
-        end
-        if KYBER.Medical then
-            KYBER.Medical:Save(ply)
-        end
-        if KYBER.Reputation then
-            KYBER.Reputation:Save(ply)
-        end
-        if KYBER.Comms then
-            KYBER.Comms:Save(ply)
-        end
-    end
-    
-    print("[Kyber] All player data saved")
-end
-
--- Performance monitoring
-timer.Create("KyberPerformanceCheck", 60, 0, function()
-    local players = #player.GetAll()
-    local entities = #ents.GetAll()
-    
-    if entities > 2000 then
-        print("[Kyber] WARNING: High entity count (" .. entities .. ")")
-    end
-    
-    -- Auto-save all data every 5 minutes
-    if CurTime() % 300 < 1 then
-        for _, ply in ipairs(player.GetAll()) do
-            if KYBER.PlayerData then KYBER.PlayerData:Save(ply) end
-            if KYBER.Inventory then KYBER.Inventory:Save(ply) end
-            if KYBER.Banking then KYBER.Banking:Save(ply) end
-        end
-    end
-end)
-
-print("[Kyber] ==========================================")
-print("[Kyber] Gamemode initialization complete!")
-print("[Kyber] Systems loaded: " .. table.Count(KYBER) .. " modules")
-print("[Kyber] Ready for players!")
-print("[Kyber] ==========================================")
-
--- Set gamemode info
-GM.Name = "Kyber Roleplay"
-GM.Author = "Kyber Development Team"
-GM.Email = ""
-GM.Website = ""
-GM.Version = "1.0.0"
+print("[Kyber] Server initialization complete")

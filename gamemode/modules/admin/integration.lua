@@ -1,394 +1,96 @@
 -- kyber/modules/admin/integration.lua
--- Integration with other Kyber systems and chat enhancements
+KYBER.Admin = KYBER.Admin or {}
 
-if SERVER then
-    -- Chat system integration
-    hook.Add("PlayerSay", "KyberAdminChat", function(ply, text, teamChat)
-        local level = KYBER.Admin:GetLevel(ply)
+if CLIENT then
+    -- Scoreboard integration
+    hook.Add("ScoreboardPlayerRightClick", "KyberAdminScoreboard", function(ply)
+        if LocalPlayer():GetNWInt("kyber_admin_level", 0) == 0 then return end
         
-        if level > 0 then
-            local levelData = KYBER.Admin.Config.levels[level]
-            local prefix = levelData.prefix
-            
-            -- Admin chat (@ prefix)
-            if string.sub(text, 1, 1) == "@" and level >= 1 then
-                local message = string.sub(text, 2)
-                
-                -- Send to all admins
-                for _, admin in ipairs(player.GetAll()) do
-                    if KYBER.Admin:IsAdmin(admin) then
-                        admin:ChatPrint("[ADMIN CHAT] " .. ply:Nick() .. ": " .. message)
-                    end
-                end
-                
-                KYBER.Admin:LogAction(ply, "ADMIN_CHAT", message)
-                return ""
-            end
-            
-            -- Silent admin chat (# prefix) - higher level admins only
-            if string.sub(text, 1, 1) == "#" and level >= 3 then
-                local message = string.sub(text, 2)
-                
-                -- Send only to senior admins
-                for _, admin in ipairs(player.GetAll()) do
-                    if KYBER.Admin:GetLevel(admin) >= 3 then
-                        admin:ChatPrint("[SENIOR CHAT] " .. ply:Nick() .. ": " .. message)
-                    end
-                end
-                
-                KYBER.Admin:LogAction(ply, "SENIOR_CHAT", message)
-                return ""
-            end
-        end
-    end)
-    
-    -- Death hook for admin protection
-    hook.Add("PlayerDeath", "KyberAdminProtection", function(victim, inflictor, attacker)
-        if KYBER.Admin:IsAdmin(victim, 2) then
-            -- Log admin deaths
-            local attackerName = IsValid(attacker) and attacker:IsPlayer() and attacker:Nick() or "Unknown"
-            KYBER.Admin:LogAction(victim, "DEATH", "killed by " .. attackerName)
-            
-            -- Notify other admins
-            for _, admin in ipairs(player.GetAll()) do
-                if KYBER.Admin:IsAdmin(admin) and admin ~= victim then
-                    admin:ChatPrint("[ADMIN] " .. victim:Nick() .. " was killed by " .. attackerName)
-                end
-            end
-        end
-    end)
-    
-    -- Prop protection for admins
-    hook.Add("PhysgunPickup", "KyberAdminPhysgun", function(ply, ent)
-        if not IsValid(ent) or not ent.Owner then return end
-        
-        -- Admins can pick up anyone's props
-        if KYBER.Admin:IsAdmin(ply, 2) then
-            return true
-        end
-        
-        -- Protect admin props from non-admins
-        if KYBER.Admin:IsAdmin(ent.Owner, 1) and not KYBER.Admin:IsAdmin(ply) then
-            ply:ChatPrint("You cannot manipulate admin-owned props")
-            return false
-        end
-    end)
-    
-    -- Admin spectator mode enhancements
-    hook.Add("PlayerNoClip", "KyberAdminNoclip", function(ply, desiredState)
-        if KYBER.Admin:HasPermission(ply, "noclip") then
-            return true
-        end
-        
-        return false
-    end)
-    
-    -- Admin damage protection
-    hook.Add("EntityTakeDamage", "KyberAdminDamage", function(target, dmginfo)
-        if IsValid(target) and target:IsPlayer() then
-            local attacker = dmginfo:GetAttacker()
-            
-            -- Prevent non-admins from hurting admins (optional)
-            if KYBER.Admin:IsAdmin(target, 3) and IsValid(attacker) and attacker:IsPlayer() then
-                if not KYBER.Admin:IsAdmin(attacker) then
-                    attacker:ChatPrint("You cannot damage senior staff members")
-                    return true -- Block damage
-                end
-            end
-        end
-    end)
-    
-    -- Integration with reputation system
-    hook.Add("Kyber_Admin_PlayerPunished", "AdminReputationPenalty", function(admin, target, punishment)
-        if KYBER.Reputation then
-            -- Admins get reputation bonus for proper moderation
-            local factions = {"republic", "imperial", "rebel"}
-            for _, faction in ipairs(factions) do
-                KYBER.Reputation:ChangeReputation(admin, faction, 5, "Administrative action")
-            end
-            
-            -- Punished players lose reputation
-            if punishment == "ban" or punishment == "kick" then
-                for _, faction in ipairs(factions) do
-                    KYBER.Reputation:ChangeReputation(target, faction, -50, "Administrative punishment")
-                end
-            end
-        end
-    end)
-    
-    -- Integration with banking system
-    hook.Add("Kyber_Admin_CreditsGiven", "AdminBankingLog", function(admin, target, amount)
-        if KYBER.Banking then
-            -- Log large credit transactions
-            if amount > 10000 then
-                KYBER.Admin:LogAction(admin, "LARGE_CREDIT_GRANT", 
-                    amount .. " credits to " .. target:Nick())
-            end
-        end
-    end)
-    
-    -- Anti-abuse measures
-    local recentActions = {}
-    
-    hook.Add("Kyber_Admin_Command", "AdminAntiAbuse", function(admin, command, args)
-        local steamID = admin:SteamID64()
-        local now = CurTime()
-        
-        -- Track command frequency
-        recentActions[steamID] = recentActions[steamID] or {}
-        
-        -- Clean old actions (last 60 seconds)
-        for i = #recentActions[steamID], 1, -1 do
-            if now - recentActions[steamID][i].time > 60 then
-                table.remove(recentActions[steamID], i)
-            end
-        end
-        
-        -- Add current action
-        table.insert(recentActions[steamID], {
-            command = command,
-            time = now
-        })
-        
-        -- Check for spam
-        if #recentActions[steamID] > 20 then
-            -- Log potential abuse
-            KYBER.Admin:LogAction(admin, "POTENTIAL_ABUSE", 
-                "Executed " .. #recentActions[steamID] .. " commands in 60 seconds")
-            
-            -- Notify senior admins
-            for _, seniorAdmin in ipairs(player.GetAll()) do
-                if KYBER.Admin:GetLevel(seniorAdmin) >= 4 then
-                    seniorAdmin:ChatPrint("[WARNING] " .. admin:Nick() .. 
-                        " executed many commands rapidly. Check logs.")
-                end
-            end
-        end
-    end)
-    
-    -- Advanced logging integration
-    hook.Add("Kyber_Admin_ActionLogged", "AdminAdvancedLogging", function(admin, action, details)
-        -- Integration with external logging systems could go here
-        
-        -- Discord webhook integration (example)
-        if action == "BAN" or action == "KICK" then
-            -- Send to Discord webhook if configured
-            -- This would require HTTP requests module
-        end
-        
-        -- Database logging for serious actions
-        if action == "BAN" or action == "PROMOTE" or action == "DEMOTE" then
-            -- Log to SQL database if available
-        end
-    end)
-    
-else -- CLIENT
-    
-    -- Admin HUD elements
-    hook.Add("HUDPaint", "KyberAdminHUD", function()
-        local ply = LocalPlayer()
-        local level = ply:GetNWInt("kyber_admin_level", 0)
-        
-        if level > 0 then
-            local levelData = KYBER.Admin.Config.levels[level]
-            
-            -- Admin status indicator
-            draw.SimpleText(levelData.prefix, "DermaDefaultBold", 10, 10, levelData.color)
-            
-            -- Show player count to admins
-            local playerCount = #player.GetAll()
-            draw.SimpleText("Players: " .. playerCount .. "/" .. game.MaxPlayers(), 
-                          "DermaDefault", 10, 30, Color(255, 255, 255))
-            
-            -- Show server uptime
-            local uptime = string.FormattedTime(SysTime(), "%02i:%02i:%02i")
-            draw.SimpleText("Uptime: " .. uptime, "DermaDefault", 10, 50, Color(200, 200, 200))
-            
-            -- Admin notifications area
-            local y = ScrH() - 200
-            
-            -- Show recent admin actions
-            if KYBER.Admin.RecentNotifications then
-                for i, notif in ipairs(KYBER.Admin.RecentNotifications) do
-                    if CurTime() - notif.time < 10 then -- Show for 10 seconds
-                        local alpha = math.min(255, (10 - (CurTime() - notif.time)) * 25.5)
-                        draw.SimpleText("[ADMIN] " .. notif.text, "DermaDefault", 
-                                      10, y - (i * 20), Color(255, 255, 100, alpha))
-                    end
-                end
-            end
-        end
-    end)
-    
-    -- Admin notifications
-    KYBER.Admin.RecentNotifications = {}
-    
-    function KYBER.Admin:AddNotification(text)
-        table.insert(self.RecentNotifications, {
-            text = text,
-            time = CurTime()
-        })
-        
-        -- Keep only last 5 notifications
-        if #self.RecentNotifications > 5 then
-            table.remove(self.RecentNotifications, 1)
-        end
-    end
-    
-    -- Enhanced admin chat
-    hook.Add("OnPlayerChat", "KyberAdminChatClient", function(ply, text, teamChat, isDead)
-        local level = ply:GetNWInt("kyber_admin_level", 0)
-        
-        if level > 0 then
-            local levelData = KYBER.Admin.Config.levels[level]
-            
-            -- Add admin prefix to chat
-            chat.AddText(
-                levelData.color, levelData.prefix .. " ",
-                team.GetColor(ply:Team()), ply:Nick(),
-                Color(255, 255, 255), ": " .. text
-            )
-            
-            return true -- Override default chat
-        end
-    end)
-    
-    -- Spectator enhancements for admins
-    hook.Add("CreateMove", "KyberAdminSpectator", function(cmd)
-        local ply = LocalPlayer()
-        
-        if ply:GetObserverMode() != OBS_MODE_NONE and KYBER.Admin:IsAdmin(ply) then
-            -- Enhanced spectator controls for admins
-            if input.IsKeyDown(KEY_LSHIFT) then
-                cmd:SetForwardMove(cmd:GetForwardMove() * 3) -- Fast movement
-                cmd:SetSideMove(cmd:GetSideMove() * 3)
-            end
-        end
-    end)
-    
-    -- Admin-only information display
-    hook.Add("HUDDrawTargetID", "KyberAdminTargetID", function()
-        local ply = LocalPlayer()
-        local level = ply:GetNWInt("kyber_admin_level", 0)
-        
-        if level > 0 then
-            local tr = ply:GetEyeTrace()
-            local target = tr.Entity
-            
-            if IsValid(target) and target:IsPlayer() then
-                local x, y = ScrW() / 2, ScrH() / 2 + 50
-                
-                -- Show additional admin info
-                draw.SimpleText("SteamID: " .. target:SteamID64(), "DermaDefault", 
-                              x, y + 20, Color(255, 255, 255), TEXT_ALIGN_CENTER)
-                
-                draw.SimpleText("UserID: " .. target:UserID(), "DermaDefault", 
-                              x, y + 35, Color(255, 255, 255), TEXT_ALIGN_CENTER)
-                
-                local targetLevel = target:GetNWInt("kyber_admin_level", 0)
-                if targetLevel > 0 then
-                    local targetLevelData = KYBER.Admin.Config.levels[targetLevel]
-                    draw.SimpleText("Admin: " .. targetLevelData.name, "DermaDefault", 
-                                  x, y + 50, targetLevelData.color, TEXT_ALIGN_CENTER)
-                end
-                
-                -- Show faction info
-                local faction = target:GetNWString("kyber_faction", "")
-                if faction ~= "" and KYBER.Factions[faction] then
-                    draw.SimpleText("Faction: " .. KYBER.Factions[faction].name, "DermaDefault", 
-                                  x, y + 65, Color(200, 200, 200), TEXT_ALIGN_CENTER)
-                end
-            end
-        end
-    end)
-    
-    -- Quick admin menu (right-click on players)
-    hook.Add("OnContextMenuOpen", "KyberAdminContext", function()
-        local ply = LocalPlayer()
-        
-        if KYBER.Admin:IsAdmin(ply) then
-            local tr = ply:GetEyeTrace()
-            local target = tr.Entity
-            
-            if IsValid(target) and target:IsPlayer() and target ~= ply then
-                -- Open quick admin context menu
-                timer.Simple(0, function()
-                    KYBER.Admin:OpenQuickMenu(target)
-                end)
-            end
-        end
-    end)
-    
-    function KYBER.Admin:OpenQuickMenu(target)
         local menu = DermaMenu()
-        menu:SetMinimumWidth(200)
         
-        -- Header
-        local header = menu:AddOption(target:Nick())
-        header:SetTextColor(Color(255, 255, 100))
-        header:SetIcon("icon16/user.png")
+        -- Player info
+        menu:AddOption("View Profile", function()
+            gui.OpenURL("https://steamcommunity.com/profiles/" .. ply:SteamID64())
+        end):SetIcon("icon16/user.png")
         
         menu:AddSpacer()
         
         -- Quick actions
-        if self:HasPermission(LocalPlayer(), "tp_to_player") then
+        if KYBER.Admin:HasPermission(LocalPlayer(), "tp_to_player") then
             menu:AddOption("Goto", function()
-                self:ExecuteCommand("goto", {target:UserID()})
+                KYBER.Admin:ExecuteCommand("goto", {ply:UserID()})
             end):SetIcon("icon16/user_go.png")
         end
         
-        if self:HasPermission(LocalPlayer(), "bring") then
+        if KYBER.Admin:HasPermission(LocalPlayer(), "bring") then
             menu:AddOption("Bring", function()
-                self:ExecuteCommand("bring", {target:UserID()})
+                KYBER.Admin:ExecuteCommand("bring", {ply:UserID()})
             end):SetIcon("icon16/user_add.png")
         end
         
-        if self:HasPermission(LocalPlayer(), "spectate") then
+        if KYBER.Admin:HasPermission(LocalPlayer(), "spectate") then
             menu:AddOption("Spectate", function()
-                self:ExecuteCommand("spectate", {target:UserID()})
+                KYBER.Admin:ExecuteCommand("spectate", {ply:UserID()})
             end):SetIcon("icon16/eye.png")
         end
         
-        if self:HasPermission(LocalPlayer(), "heal") then
+        if KYBER.Admin:HasPermission(LocalPlayer(), "heal") then
             menu:AddOption("Heal", function()
-                self:ExecuteCommand("heal", {target:UserID()})
+                KYBER.Admin:ExecuteCommand("heal", {ply:UserID()})
             end):SetIcon("icon16/heart.png")
         end
         
         menu:AddSpacer()
         
         -- Punishment submenu
-        if self:HasPermission(LocalPlayer(), "warn") then
+        if KYBER.Admin:HasPermission(LocalPlayer(), "warn") then
             local punishMenu = menu:AddSubMenu("Punish")
             punishMenu:SetIcon("icon16/exclamation.png")
             
             punishMenu:AddOption("Warn", function()
                 Derma_StringRequest("Warning", "Reason:", "",
                     function(text)
-                        self:ExecuteCommand("warn", {target:UserID(), text})
+                        KYBER.Admin:ExecuteCommand("warn", {ply:UserID(), text})
                     end
                 )
             end)
             
-            if self:HasPermission(LocalPlayer(), "kick") then
+            if KYBER.Admin:HasPermission(LocalPlayer(), "kick") then
                 punishMenu:AddOption("Kick", function()
                     Derma_StringRequest("Kick", "Reason:", "",
                         function(text)
-                            self:ExecuteCommand("kick", {target:UserID(), text})
+                            KYBER.Admin:ExecuteCommand("kick", {ply:UserID(), text})
                         end
                     )
                 end)
             end
             
-            if self:HasPermission(LocalPlayer(), "freeze") then
+            if KYBER.Admin:HasPermission(LocalPlayer(), "freeze") then
                 punishMenu:AddOption("Freeze", function()
-                    self:ExecuteCommand("freeze", {target:UserID()})
+                    KYBER.Admin:ExecuteCommand("freeze", {ply:UserID()})
+                end)
+            end
+            
+            if KYBER.Admin:HasPermission(LocalPlayer(), "jail") then
+                punishMenu:AddOption("Jail", function()
+                    Derma_StringRequest("Jail Time", "Minutes:", "5",
+                        function(text)
+                            local time = tonumber(text) or 5
+                            KYBER.Admin:ExecuteCommand("jail", {ply:UserID(), time})
+                        end
+                    )
+                end)
+            end
+            
+            if KYBER.Admin:HasPermission(LocalPlayer(), "ban") then
+                punishMenu:AddOption("Ban", function()
+                    KYBER.Admin:OpenBanDialog(ply)
                 end)
             end
         end
         
         -- Character management submenu
-        if self:HasPermission(LocalPlayer(), "give_credits") then
+        if KYBER.Admin:HasPermission(LocalPlayer(), "give_credits") then
             local charMenu = menu:AddSubMenu("Character")
             charMenu:SetIcon("icon16/user_edit.png")
             
@@ -397,13 +99,13 @@ else -- CLIENT
                     function(text)
                         local amount = tonumber(text)
                         if amount then
-                            self:ExecuteCommand("give_credits", {target:UserID(), amount})
+                            KYBER.Admin:ExecuteCommand("give_credits", {ply:UserID(), amount})
                         end
                     end
                 )
             end)
             
-            if self:HasPermission(LocalPlayer(), "manage_factions") then
+            if KYBER.Admin:HasPermission(LocalPlayer(), "manage_factions") then
                 charMenu:AddOption("Set Faction", function()
                     local factionFrame = vgui.Create("DFrame")
                     factionFrame:SetSize(300, 200)
@@ -428,242 +130,357 @@ else -- CLIENT
                     setBtn.DoClick = function()
                         local _, factionID = combo:GetSelected()
                         if factionID ~= nil then
-                            self:ExecuteCommand("set_faction", {target:UserID(), factionID})
+                            KYBER.Admin:ExecuteCommand("set_faction", {ply:UserID(), factionID})
                             factionFrame:Close()
                         end
+                    end
+                    
+                    local cancelBtn = vgui.Create("DButton", factionFrame)
+                    cancelBtn:SetPos(120, 150)
+                    cancelBtn:SetSize(100, 30)
+                    cancelBtn:SetText("Cancel")
+                    cancelBtn.DoClick = function()
+                        factionFrame:Close()
+                    end
+                end)
+            end
+            
+            if KYBER.Admin:HasPermission(LocalPlayer(), "edit_characters") then
+                charMenu:AddOption("Edit Character", function()
+                    -- Open character editor
+                    if KYBER.Character and KYBER.Character.OpenEditor then
+                        KYBER.Character:OpenEditor(ply)
+                    else
+                        LocalPlayer():ChatPrint("Character editor not available")
                     end
                 end)
             end
         end
         
+        -- Admin management (for high-level admins)
+        if KYBER.Admin:HasPermission(LocalPlayer(), "promote_admin") then
+            local adminMenu = menu:AddSubMenu("Admin")
+            adminMenu:SetIcon("icon16/shield.png")
+            
+            local currentLevel = ply:GetNWInt("kyber_admin_level", 0)
+            
+            if currentLevel == 0 then
+                adminMenu:AddOption("Promote to Moderator", function()
+                    Derma_Query("Promote " .. ply:Nick() .. " to Moderator?",
+                        "Confirm Promotion",
+                        "Yes", function()
+                            KYBER.Admin:ExecuteCommand("promote_admin", {ply:SteamID64(), 1})
+                        end,
+                        "No", function() end
+                    )
+                end)
+            else
+                adminMenu:AddOption("Demote", function()
+                    Derma_Query("Remove admin privileges from " .. ply:Nick() .. "?",
+                        "Confirm Demotion",
+                        "Yes", function()
+                            KYBER.Admin:ExecuteCommand("demote_admin", {ply:SteamID64()})
+                        end,
+                        "No", function() end
+                    )
+                end)
+                
+                if currentLevel < 4 then -- Can't promote superadmins
+                    adminMenu:AddOption("Promote", function()
+                        local frame = vgui.Create("DFrame")
+                        frame:SetSize(300, 150)
+                        frame:Center()
+                        frame:SetTitle("Promote " .. ply:Nick())
+                        frame:MakePopup()
+                        
+                        local combo = vgui.Create("DComboBox", frame)
+                        combo:SetPos(10, 30)
+                        combo:SetSize(280, 25)
+                        combo:SetValue("Select Level")
+                        
+                        for level = currentLevel + 1, 4 do
+                            local config = KYBER.Admin.Config.levels[level]
+                            if config then
+                                combo:AddChoice(config.name, level)
+                            end
+                        end
+                        
+                        local promoteBtn = vgui.Create("DButton", frame)
+                        promoteBtn:SetPos(10, 70)
+                        promoteBtn:SetSize(100, 30)
+                        promoteBtn:SetText("Promote")
+                        promoteBtn.DoClick = function()
+                            local _, level = combo:GetSelected()
+                            if level then
+                                KYBER.Admin:ExecuteCommand("promote_admin", {ply:SteamID64(), level})
+                                frame:Close()
+                            end
+                        end
+                        
+                        local cancelBtn = vgui.Create("DButton", frame)
+                        cancelBtn:SetPos(120, 70)
+                        cancelBtn:SetSize(100, 30)
+                        cancelBtn:SetText("Cancel")
+                        cancelBtn.DoClick = function()
+                            frame:Close()
+                        end
+                    end)
+                end
+            end
+        end
+        
         menu:Open()
-    end
+    end)
     
-    -- Admin keybinds
-    hook.Add("PlayerButtonDown", "KyberAdminKeybinds", function(ply, key)
-        if ply ~= LocalPlayer() or not KYBER.Admin:IsAdmin(ply) then return end
+    -- Context menu integration
+    hook.Add("OnContextMenuOpen", "KyberAdminContext", function()
+        if LocalPlayer():GetNWInt("kyber_admin_level", 0) == 0 then return end
         
-        -- F1 - Quick admin help
-        if key == KEY_F1 then
-            KYBER.Admin:ShowQuickHelp()
-        end
-        
-        -- F3 - Quick player list
-        if key == KEY_F3 then
-            KYBER.Admin:ShowQuickPlayerList()
-        end
-        
-        -- Delete - Remove targeted entity (for cleanup)
-        if key == KEY_DELETE and KYBER.Admin:HasPermission(ply, "spawn_props") then
-            local tr = ply:GetEyeTrace()
-            if IsValid(tr.Entity) and not tr.Entity:IsPlayer() then
-                SafeRemoveEntity(tr.Entity)
-                KYBER.Admin:AddNotification("Removed " .. tr.Entity:GetClass())
+        -- Add admin tools to context menu
+        local trace = LocalPlayer():GetEyeTrace()
+        if IsValid(trace.Entity) then
+            local ent = trace.Entity
+            
+            -- Entity management options
+            if ent:IsPlayer() then
+                -- Player options already handled in scoreboard
+                return
+            elseif ent:GetClass() == "prop_physics" then
+                -- Prop management
+                local menu = DermaMenu()
+                
+                menu:AddOption("Remove Prop", function()
+                    KYBER.Admin:ExecuteCommand("remove_entity", {ent:EntIndex()})
+                end):SetIcon("icon16/delete.png")
+                
+                if KYBER.Admin:HasPermission(LocalPlayer(), "spawn_props") then
+                    menu:AddOption("Freeze Prop", function()
+                        KYBER.Admin:ExecuteCommand("freeze_prop", {ent:EntIndex()})
+                    end):SetIcon("icon16/stop.png")
+                    
+                    menu:AddOption("Copy Prop", function()
+                        KYBER.Admin:ExecuteCommand("copy_prop", {ent:EntIndex()})
+                    end):SetIcon("icon16/page_copy.png")
+                end
+                
+                menu:Open()
             end
         end
     end)
     
-    function KYBER.Admin:ShowQuickHelp()
-        local frame = vgui.Create("DFrame")
-        frame:SetSize(500, 400)
-        frame:Center()
-        frame:SetTitle("Admin Quick Help")
-        frame:MakePopup()
+    -- Chat command integration
+    hook.Add("OnPlayerChat", "KyberAdminChatCommands", function(ply, text, teamChat, dead)
+        if not IsValid(ply) or ply ~= LocalPlayer() then return end
+        if not string.StartWith(text, "/") then return end
         
-        local scroll = vgui.Create("DRichText", frame)
-        scroll:Dock(FILL)
-        scroll:DockMargin(10, 10, 10, 10)
+        local adminLevel = ply:GetNWInt("kyber_admin_level", 0)
+        if adminLevel == 0 then return end
         
-        scroll:AppendText("Kyber Admin Quick Reference\n\n")
+        local args = string.Explode(" ", text)
+        local cmd = string.sub(args[1], 2) -- Remove /
         
-        scroll:SetFontInternal("DermaDefaultBold")
-        scroll:AppendText("Keybinds:\n")
-        scroll:SetFontInternal("DermaDefault")
-        scroll:AppendText("F1 - This help menu\n")
-        scroll:AppendText("F2 - Full admin panel\n")
-        scroll:AppendText("F3 - Quick player list\n")
-        scroll:AppendText("Delete - Remove targeted entity\n\n")
-        
-        scroll:SetFontInternal("DermaDefaultBold")
-        scroll:AppendText("Chat Commands:\n")
-        scroll:SetFontInternal("DermaDefault")
-        scroll:AppendText("@ - Admin chat\n")
-        scroll:AppendText("# - Senior admin chat\n")
-        scroll:AppendText("! - Command prefix\n\n")
-        
-        scroll:SetFontInternal("DermaDefaultBold")
-        scroll:AppendText("Quick Actions:\n")
-        scroll:SetFontInternal("DermaDefault")
-        scroll:AppendText("Right-click players for quick menu\n")
-        scroll:AppendText("Look at player + Delete to quick-kick\n")
-    end
-    
-    function KYBER.Admin:ShowQuickPlayerList()
-        local frame = vgui.Create("DFrame")
-        frame:SetSize(400, 500)
-        frame:SetPos(20, 20)
-        frame:SetTitle("Quick Player List")
-        frame:MakePopup()
-        
-        local list = vgui.Create("DListView", frame)
-        list:Dock(FILL)
-        list:DockMargin(10, 10, 10, 10)
-        list:AddColumn("Name")
-        list:AddColumn("Health")
-        list:AddColumn("Faction")
-        
-        for _, ply in ipairs(player.GetAll()) do
-            local line = list:AddLine(
-                ply:Nick(),
-                ply:Health() .. "/" .. ply:GetMaxHealth(),
-                ply:GetNWString("kyber_faction", "None")
-            )
-            
-            local adminLevel = ply:GetNWInt("kyber_admin_level", 0)
-            if adminLevel > 0 then
-                line:SetTextColor(KYBER.Admin.Config.levels[adminLevel].color)
-            end
-        end
-        
-        list.OnRowRightClick = function(self, lineID, line)
-            local playerName = line:GetValue(1)
+        -- Quick admin commands
+        if cmd == "admin" or cmd == "panel" then
+            net.Start("Kyber_Admin_OpenPanel")
+            net.SendToServer()
+            return true
+        elseif cmd == "goto" and #args >= 2 then
             local target = nil
-            
-            for _, ply in ipairs(player.GetAll()) do
-                if ply:Nick() == playerName then
-                    target = ply
+            for _, p in ipairs(player.GetAll()) do
+                if string.find(p:Nick():lower(), args[2]:lower()) then
+                    target = p
                     break
                 end
             end
-            
-            if IsValid(target) then
-                KYBER.Admin:OpenQuickMenu(target)
+            if target then
+                KYBER.Admin:ExecuteCommand("goto", {target:UserID()})
+            else
+                ply:ChatPrint("Player not found")
             end
+            return true
+        elseif cmd == "bring" and #args >= 2 then
+            local target = nil
+            for _, p in ipairs(player.GetAll()) do
+                if string.find(p:Nick():lower(), args[2]:lower()) then
+                    target = p
+                    break
+                end
+            end
+            if target then
+                KYBER.Admin:ExecuteCommand("bring", {target:UserID()})
+            else
+                ply:ChatPrint("Player not found")
+            end
+            return true
+        elseif cmd == "noclip" then
+            KYBER.Admin:ExecuteCommand("noclip", {})
+            return true
+        elseif cmd == "god" then
+            KYBER.Admin:ExecuteCommand("god", {})
+            return true
         end
-    end
-    
-    -- Admin status on scoreboard
-    hook.Add("ScoreboardShow", "KyberAdminScoreboard", function()
-        -- Custom scoreboard would show admin status here
-        return false -- Let default scoreboard show for now
     end)
     
-    -- Enhanced chat for admins
-    hook.Add("ChatText", "KyberAdminChatEnhancement", function(index, name, text, type)
-        local ply = player.GetByID(index)
+    -- Notification system integration
+    hook.Add("HUDPaint", "KyberAdminNotifications", function()
+        if not KYBER.Admin.Notifications then return end
         
-        if IsValid(ply) then
-            local level = ply:GetNWInt("kyber_admin_level", 0)
-            
-            if level > 0 and LocalPlayer():GetNWInt("kyber_admin_level", 0) > 0 then
-                -- Show admin info in chat for other admins
-                local levelData = KYBER.Admin.Config.levels[level]
+        local y = ScrH() - 200
+        for i, notif in ipairs(KYBER.Admin.Notifications) do
+            if notif.endTime > CurTime() then
+                local alpha = math.min(255, (notif.endTime - CurTime()) * 255)
+                local color = notif.type == "error" and Color(255, 100, 100, alpha) or Color(100, 255, 100, alpha)
                 
-                if type == "all" then
-                    chat.AddText(
-                        levelData.color, levelData.prefix .. " ",
-                        team.GetColor(ply:Team()), name,
-                        Color(255, 255, 255), ": ",
-                        Color(255, 255, 255), text
-                    )
-                    return true
-                end
+                draw.RoundedBox(4, 20, y, 300, 25, Color(0, 0, 0, alpha * 0.7))
+                draw.SimpleText(notif.text, "DermaDefault", 25, y + 12, color, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+                
+                y = y - 30
+            else
+                table.remove(KYBER.Admin.Notifications, i)
             end
         end
     end)
     
-    -- Admin notifications for joins/leaves
-    net.Receive("Kyber_Admin_PlayerEvent", function()
-        local eventType = net.ReadString()
-        local playerName = net.ReadString()
-        local steamID = net.ReadString()
+    -- Add notification function
+    function KYBER.Admin:AddNotification(text, type, duration)
+        self.Notifications = self.Notifications or {}
         
-        if LocalPlayer():GetNWInt("kyber_admin_level", 0) > 0 then
-            local color = eventType == "join" and Color(100, 255, 100) or Color(255, 100, 100)
-            local action = eventType == "join" and "connected" or "disconnected"
-            
-            chat.AddText(
-                Color(255, 255, 100), "[ADMIN] ",
-                color, playerName,
-                Color(255, 255, 255), " " .. action .. " (",
-                Color(200, 200, 200), steamID,
-                Color(255, 255, 255), ")"
-            )
-        end
-    end)
+        table.insert(self.Notifications, {
+            text = text,
+            type = type or "info",
+            endTime = CurTime() + (duration or 5)
+        })
+    end
     
-end
-
--- Shared admin utilities
-function KYBER.Admin:IsAdmin(ply, level)
-    if CLIENT then
-        return ply:GetNWInt("kyber_admin_level", 0) >= (level or 1)
-    else
+    -- Utility functions for client
+    function KYBER.Admin:ExecuteCommand(command, args)
+        net.Start("Kyber_Admin_ExecuteCommand")
+        net.WriteString(command)
+        net.WriteTable(args or {})
+        net.SendToServer()
+    end
+    
+    function KYBER.Admin:HasPermission(ply, permission)
         if not IsValid(ply) then return false end
         
-        local steamID = ply:SteamID64()
-        local adminData = self.Admins[steamID]
+        local adminLevel = ply:GetNWInt("kyber_admin_level", 0)
+        local requiredLevel = self.Config and self.Config.permissions and self.Config.permissions[permission] or 999
         
-        if not adminData then return false end
-        
-        level = level or 1
-        return adminData.level >= level
+        return adminLevel >= requiredLevel
     end
 end
 
-function KYBER.Admin:HasPermission(ply, permission)
-    if CLIENT then
-        -- Basic client-side check
-        local level = ply:GetNWInt("kyber_admin_level", 0)
-        local reqLevel = self.Config.permissions[permission]
-        return reqLevel and level >= reqLevel
-    else
-        if not IsValid(ply) then return false end
-        
-        local level = self:GetLevel(ply)
-        if level == 0 then return false end
-        
-        -- Superadmins have all permissions
-        if level >= 5 then return true end
-        
-        local reqLevel = self.Config.permissions[permission]
-        return reqLevel and level >= reqLevel
-    end
-end
-
--- Network admin events to clients
+-- Server-side integration
 if SERVER then
-    util.AddNetworkString("Kyber_Admin_PlayerEvent")
-    
-    hook.Add("PlayerConnect", "KyberAdminConnect", function(name, ip)
-        timer.Simple(1, function()
-            net.Start("Kyber_Admin_PlayerEvent")
-            net.WriteString("join")
-            net.WriteString(name)
-            net.WriteString(ip)
+    -- Additional admin commands for integration
+    KYBER.Admin:RegisterCommand("set_faction", "manage_factions", function(admin, args)
+        local userid = tonumber(args[1])
+        local factionID = args[2]
+        local target = Player(userid)
+        
+        if not IsValid(target) then
+            admin:ChatPrint("Invalid target")
+            return
+        end
+        
+        if KYBER.Factions and KYBER.Factions[factionID] then
+            target:SetNWString("kyber_faction", factionID)
+            if KYBER.Character then
+                KYBER.Character:SetFaction(target, factionID)
+            end
             
-            -- Send to all admins
-            for _, admin in ipairs(player.GetAll()) do
-                if KYBER.Admin:IsAdmin(admin) then
-                    net.Send(admin)
-                end
+            admin:ChatPrint("Set " .. target:Nick() .. "'s faction to " .. KYBER.Factions[factionID].name)
+            target:ChatPrint("Your faction was changed to " .. KYBER.Factions[factionID].name .. " by " .. admin:Nick())
+            
+            return "set faction for " .. target:Nick()
+        elseif factionID == "" then
+            target:SetNWString("kyber_faction", "")
+            admin:ChatPrint("Removed " .. target:Nick() .. " from their faction")
+            target:ChatPrint("You were removed from your faction by " .. admin:Nick())
+            
+            return "removed faction for " .. target:Nick()
+        else
+            admin:ChatPrint("Invalid faction ID")
+        end
+    end, "Set a player's faction")
+    
+    KYBER.Admin:RegisterCommand("promote_admin", "promote_admin", function(admin, args)
+        local steamID = args[1]
+        local level = tonumber(args[2]) or 1
+        
+        if not steamID then
+            admin:ChatPrint("Invalid SteamID")
+            return
+        end
+        
+        -- Find player name
+        local targetName = "Unknown"
+        for _, ply in ipairs(player.GetAll()) do
+            if ply:SteamID64() == steamID then
+                targetName = ply:Nick()
+                break
+            end
+        end
+        
+        KYBER.Admin:AddAdmin(steamID, targetName, level, admin:Nick())
+        admin:ChatPrint("Promoted " .. targetName .. " to admin level " .. level)
+        
+        return "promoted " .. targetName .. " to level " .. level
+    end, "Promote a player to admin")
+    
+    KYBER.Admin:RegisterCommand("demote_admin", "promote_admin", function(admin, args)
+        local steamID = args[1]
+        
+        if not steamID then
+            admin:ChatPrint("Invalid SteamID")
+            return
+        end
+        
+        if KYBER.Admin:RemoveAdmin(steamID, admin:Nick()) then
+            admin:ChatPrint("Removed admin privileges")
+            return "demoted admin"
+        else
+            admin:ChatPrint("Player is not an admin")
+        end
+    end, "Demote an admin")
+    
+    -- Entity management commands
+    KYBER.Admin:RegisterCommand("remove_entity", "spawn_props", function(admin, args)
+        local entIndex = tonumber(args[1])
+        local ent = Entity(entIndex)
+        
+        if not IsValid(ent) then
+            admin:ChatPrint("Invalid entity")
+            return
+        end
+        
+        local class = ent:GetClass()
+        ent:Remove()
+        
+        admin:ChatPrint("Removed " .. class)
+        return "removed " .. class
+    end, "Remove an entity")
+    
+    -- Integration with other Kyber systems
+    hook.Add("PlayerInitialSpawn", "KyberAdminIntegration", function(ply)
+        timer.Simple(2, function()
+            if IsValid(ply) and KYBER.Admin:IsAdmin(ply) then
+                ply:ChatPrint("Welcome back, " .. (KYBER.Admin.Config.levels[KYBER.Admin:GetAdminLevel(ply)] and KYBER.Admin.Config.levels[KYBER.Admin:GetAdminLevel(ply)].name or "Admin"))
+                ply:ChatPrint("Type !admin or press F4 to open the admin panel")
             end
         end)
     end)
     
-    hook.Add("PlayerDisconnected", "KyberAdminDisconnect", function(ply)
-        net.Start("Kyber_Admin_PlayerEvent")
-        net.WriteString("leave")
-        net.WriteString(ply:Nick())
-        net.WriteString(ply:SteamID64())
-        
-        -- Send to all admins
-        for _, admin in ipairs(player.GetAll()) do
-            if KYBER.Admin:IsAdmin(admin) then
-                net.Send(admin)
-            end
+    -- Log important game events
+    hook.Add("PlayerDeath", "KyberAdminDeathLog", function(victim, inflictor, attacker)
+        if IsValid(victim) and IsValid(attacker) and attacker:IsPlayer() then
+            KYBER.Admin:LogAction("SYSTEM", "DEATH", victim:Nick() .. " killed by " .. attacker:Nick(), victim:Nick())
+        end
+    end)
+    
+    hook.Add("PlayerDisconnected", "KyberAdminDisconnectLog", function(ply)
+        if KYBER.Admin:IsAdmin(ply) then
+            KYBER.Admin:LogAction("SYSTEM", "DISCONNECT", ply:Nick() .. " (Admin) disconnected", ply:Nick())
         end
     end)
 end
-
-print("[Kyber Admin] Integration loaded")
