@@ -1,54 +1,34 @@
--- kyber/entities/entities/kyber_banking_terminal/init.lua
+-- kyber/entities/entities/kyber_banking_terminal/sh_banking_terminal_entity.lua
 AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("shared.lua")
 include("shared.lua")
 
 function ENT:Initialize()
-    self:SetModel("models/props_lab/servers.mdl")
-    self:PhysicsInit(SOLID_VPHYSICS)
-    self:SetMoveType(MOVETYPE_VPHYSICS)
-    self:SetSolid(SOLID_VPHYSICS)
+    KYBER.EntityOptimization.InitializeEntity(self, "models/props_lab/reciever01b.mdl", SOLID_VPHYSICS)
     self:SetUseType(SIMPLE_USE)
-    
-    local phys = self:GetPhysicsObject()
-    if IsValid(phys) then
-        phys:Wake()
-    end
-    
-    -- Default to personal banking
-    if not self:GetTerminalType() or self:GetTerminalType() == "" then
-        self:SetTerminalType("personal")
-    end
-    
     self:SetTerminalActive(true)
 end
 
 function ENT:Use(activator, caller)
     if not IsValid(activator) or not activator:IsPlayer() then return end
-    
     if not self:GetTerminalActive() then
-        activator:ChatPrint("This terminal is offline.")
+        activator:ChatPrint("This banking terminal is offline.")
         return
     end
-    
-    -- Check distance for security
-    if activator:GetPos():Distance(self:GetPos()) > 100 then
-        activator:ChatPrint("You must be closer to use the terminal.")
-        return
-    end
-    
-    -- Open banking interface
-    net.Start("Kyber_Banking_Open")
+    self:OpenBankingUI(activator)
+end
+
+function ENT:OpenBankingUI(ply)
+    -- Networking logic to open UI (placeholder)
+    net.Start("Kyber_Banking_OpenTerminal")
     net.WriteEntity(self)
-    net.WriteString(self:GetTerminalType())
-    net.Send(activator)
-    
-    -- Sound effect
-    self:EmitSound("buttons/button14.wav")
+    net.Send(ply)
 end
 
 function ENT:OnRemove()
-    -- Any cleanup needed
+    KYBER.EntityOptimization.OptimizedCleanup(self, function(ent)
+        -- Add any additional cleanup logic here if needed
+    end)
 end
 
 -- kyber/entities/entities/kyber_banking_terminal/cl_init.lua

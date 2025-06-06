@@ -1,59 +1,34 @@
--- kyber/entities/entities/kyber_crafting_station/init.lua
+-- kyber/entities/entities/kyber_crafting_station/sh_crafting_station_entity.lua
 AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("shared.lua")
 include("shared.lua")
 
 function ENT:Initialize()
-    local stationType = self:GetStationType() or "armor_bench"
-    local stationData = KYBER.Crafting.Stations[stationType]
-    
-    if stationData then
-        self:SetModel(stationData.model)
-    else
-        self:SetModel("models/props_c17/FurnitureTable002a.mdl")
-    end
-    
-    self:PhysicsInit(SOLID_VPHYSICS)
-    self:SetMoveType(MOVETYPE_VPHYSICS)
-    self:SetSolid(SOLID_VPHYSICS)
+    KYBER.EntityOptimization.InitializeEntity(self, "models/props_c17/FurnitureBoiler001a.mdl", SOLID_VPHYSICS)
     self:SetUseType(SIMPLE_USE)
-    
-    local phys = self:GetPhysicsObject()
-    if IsValid(phys) then
-        phys:Wake()
-    end
-    
-    -- Default to armor bench
-    if not self:GetStationType() or self:GetStationType() == "" then
-        self:SetStationType("armor_bench")
-    end
+    self:SetStationActive(true)
 end
 
 function ENT:Use(activator, caller)
     if not IsValid(activator) or not activator:IsPlayer() then return end
-    
-    -- Check if player is already crafting
-    if activator.CraftingData then
-        activator:ChatPrint("You are already crafting something!")
+    if not self:GetStationActive() then
+        activator:ChatPrint("This crafting station is offline.")
         return
     end
-    
-    -- Open crafting menu
-    net.Start("Kyber_Crafting_Open")
+    self:OpenCraftingUI(activator)
+end
+
+function ENT:OpenCraftingUI(ply)
+    -- Networking logic to open UI (placeholder)
+    net.Start("Kyber_Crafting_OpenStation")
     net.WriteEntity(self)
-    net.WriteString(self:GetStationType())
-    net.Send(activator)
-    
-    self:EmitSound("buttons/button1.wav")
+    net.Send(ply)
 end
 
 function ENT:OnRemove()
-    -- Cancel any crafting using this station
-    for _, ply in ipairs(player.GetAll()) do
-        if ply.CraftingData and ply.CraftingData.station == self then
-            KYBER.Crafting:CancelCrafting(ply)
-        end
-    end
+    KYBER.EntityOptimization.OptimizedCleanup(self, function(ent)
+        -- Add any additional cleanup logic here if needed
+    end)
 end
 
 -- kyber/entities/entities/kyber_crafting_station/cl_init.lua
@@ -103,5 +78,5 @@ ENT.AdminOnly = true
 ENT.Category = "Kyber RP"
 
 function ENT:SetupDataTables()
-    self:NetworkVar("String", 0, "StationType")
+    self:NetworkVar("Bool", 0, "StationActive")
 end

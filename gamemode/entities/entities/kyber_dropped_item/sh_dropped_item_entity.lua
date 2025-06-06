@@ -1,85 +1,37 @@
--- kyber/entities/entities/kyber_dropped_item/init.lua
+-- kyber/entities/entities/kyber_dropped_item/sh_dropped_item_entity.lua
 AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("shared.lua")
 include("shared.lua")
 
 function ENT:Initialize()
-    self:SetModel("models/props_junk/cardboard_box003a.mdl") -- Default model
-    self:PhysicsInit(SOLID_VPHYSICS)
-    self:SetMoveType(MOVETYPE_VPHYSICS)
-    self:SetSolid(SOLID_VPHYSICS)
+    KYBER.EntityOptimization.InitializeEntity(self, self.Model or "models/props_junk/wood_crate001a.mdl", SOLID_VPHYSICS)
     self:SetUseType(SIMPLE_USE)
-    
-    local phys = self:GetPhysicsObject()
-    if IsValid(phys) then
-        phys:Wake()
-        phys:SetMass(5)
-    end
-    
-    -- Default values
-    self:SetItemID("unknown")
-    self:SetAmount(1)
-    
-    -- Auto-remove after 5 minutes
-    self.RemoveTime = CurTime() + 300
-end
-
-function ENT:SetItem(itemID, amount)
-    self:SetItemID(itemID)
-    self:SetAmount(amount or 1)
-    
-    -- Update model based on item type
-    local item = KYBER.GrandExchange.Items[itemID]
-    if item then
-        -- You can set custom models for different item types here
-        if item.category == "materials" then
-            self:SetModel("models/props_junk/metal_paintcan001a.mdl")
-        elseif item.category == "consumables" then
-            self:SetModel("models/props_junk/garbage_bag001a.mdl")
-        elseif item.category == "artifacts" then
-            self:SetModel("models/props_combine/breenclock.mdl")
-        end
-        
-        -- Set size based on value
-        local scale = math.Clamp(item.basePrice / 5000, 0.5, 2)
-        self:SetModelScale(scale, 0)
-    end
+    self:SetItemActive(true)
+    self:SetItemID(self.ItemID or "")
+    self:SetItemAmount(self.ItemAmount or 1)
 end
 
 function ENT:Use(activator, caller)
     if not IsValid(activator) or not activator:IsPlayer() then return end
-    
-    local itemID = self:GetItemID()
-    local amount = self:GetAmount()
-    
-    -- Try to give item to player
-    local success, err = KYBER.Inventory:GiveItem(activator, itemID, amount)
-    
-    if success then
-        activator:EmitSound("items/ammo_pickup.wav")
-        self:Remove()
-    else
-        activator:ChatPrint("Cannot pick up: " .. err)
+    if not self:GetItemActive() then
+        activator:ChatPrint("This item cannot be picked up.")
+        return
     end
+    self:PickupItem(activator)
 end
 
-function ENT:Think()
-    -- Auto-remove old items
-    if CurTime() > self.RemoveTime then
-        self:Remove()
-    end
-    
-    self:NextThink(CurTime() + 1)
-    return true
+function ENT:PickupItem(ply)
+    -- Add item to player's inventory (placeholder logic)
+    net.Start("Kyber_Inventory_PickupItem")
+    net.WriteEntity(self)
+    net.Send(ply)
+    self:Remove()
 end
 
-function ENT:OnTakeDamage(dmg)
-    -- Items can be destroyed
-    local attacker = dmg:GetAttacker()
-    if IsValid(attacker) and attacker:IsPlayer() then
-        attacker:ChatPrint("The item was destroyed!")
-        self:Remove()
-    end
+function ENT:OnRemove()
+    KYBER.EntityOptimization.OptimizedCleanup(self, function(ent)
+        -- Add any additional cleanup logic here if needed
+    end)
 end
 
 -- kyber/entities/entities/kyber_dropped_item/cl_init.lua
@@ -104,8 +56,8 @@ function ENT:Draw()
             draw.SimpleText(item.name, "DermaDefault", 0, -10, Color(255, 255, 255), TEXT_ALIGN_CENTER)
             
             -- Amount
-            if self:GetAmount() > 1 then
-                draw.SimpleText("x" .. self:GetAmount(), "DermaDefault", 0, 5, Color(255, 255, 100), TEXT_ALIGN_CENTER)
+            if self:GetItemAmount() > 1 then
+                draw.SimpleText("x" .. self:GetItemAmount(), "DermaDefault", 0, 5, Color(255, 255, 100), TEXT_ALIGN_CENTER)
             end
         end
     cam.End3D2D()
@@ -114,7 +66,7 @@ end
 function ENT:GetOverlayText()
     local item = KYBER.GrandExchange.Items[self:GetItemID()]
     if item then
-        return item.name .. " x" .. self:GetAmount() .. "\nPress E to pick up"
+        return item.name .. " x" .. self:GetItemAmount() .. "\nPress E to pick up"
     end
     return "Unknown Item"
 end
@@ -125,9 +77,10 @@ ENT.Base = "base_gmodentity"
 ENT.PrintName = "Dropped Item"
 ENT.Author = "Kyber"
 ENT.Spawnable = false
-ENT.AdminSpawnable = false
+ENT.Category = "Kyber RP"
 
 function ENT:SetupDataTables()
+    self:NetworkVar("Bool", 0, "ItemActive")
     self:NetworkVar("String", 0, "ItemID")
-    self:NetworkVar("Int", 0, "Amount")
+    self:NetworkVar("Int", 0, "ItemAmount")
 end

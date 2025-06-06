@@ -1189,3 +1189,111 @@ function KYBER.MonitorPerformance()
 end
 
 timer.Create("KyberPerformanceMonitor", 1, 0, KYBER.MonitorPerformance)
+
+-- Add to shared.lua or create a new entity_optimization.lua
+KYBER.EntityOptimization = {
+    -- Cache for entity data
+    EntityCache = {},
+    
+    -- Safe entity operations
+    SafeEntityOperation = function(ent, operation)
+        if not IsValid(ent) then return false end
+        return KYBER.Optimization.SafeCall(function()
+            return operation(ent)
+        end)
+    end,
+    
+    -- Entity cleanup
+    CleanupEntity = function(ent)
+        if not IsValid(ent) then return end
+        KYBER.Optimization.SafeCall(function()
+            -- Remove from cache
+            KYBER.EntityOptimization.EntityCache[ent:EntIndex()] = nil
+            -- Perform cleanup
+            ent:Remove()
+        end)
+    end,
+    
+    -- Entity networking optimization
+    OptimizeNetworking = function(ent)
+        if not IsValid(ent) then return end
+        -- Set network optimization
+        ent:SetNWVarProxy("kyber_entity_data", function(ent, name, old, new)
+            if old == new then return end
+            -- Only network changes
+            ent:SetNWString(name, new)
+        end)
+    end
+}
+
+-- Add to your entity's init.lua
+function ENT:OnRemove()
+    KYBER.Optimization.SafeCall(function()
+        -- Clean up resources
+        KYBER.EntityOptimization.CleanupEntity(self)
+        
+        -- Remove any attached effects
+        if self.Effects then
+            for _, effect in pairs(self.Effects) do
+                if IsValid(effect) then
+                    effect:Remove()
+                end
+            end
+        end
+    end)
+end
+
+-- Add to your entity's init.lua
+function ENT:UpdateTransmitState()
+    return TRANSMIT_ALWAYS
+end
+
+function ENT:SetupDataTables()
+    self:NetworkVar("String", 0, "EntityData")
+    self:NetworkVar("Float", 0, "LastUpdate")
+    self:NetworkVar("Bool", 0, "IsActive")
+end
+
+-- Add to your entity's init.lua
+function ENT:Think()
+    KYBER.Optimization.SafeCall(function()
+        -- Performance monitoring
+        local cache = KYBER.EntityOptimization.EntityCache[self:EntIndex()]
+        if cache then
+            local currentTime = CurTime()
+            local timeSinceUpdate = currentTime - cache.lastUpdate
+            
+            -- Update cache
+            cache.lastUpdate = currentTime
+            cache.data = {
+                position = self:GetPos(),
+                angles = self:GetAngles(),
+                velocity = self:GetVelocity()
+            }
+            
+            -- Check for performance issues
+            if timeSinceUpdate > 1 then
+                KYBER.Optimization.LogPerformanceIssue("Entity", self:GetClass(), "Think delay: " .. timeSinceUpdate)
+            end
+        end
+    end)
+end
+
+-- Add to your entity's init.lua
+function ENT:RecoverFromError()
+    KYBER.Optimization.SafeCall(function()
+        -- Reset entity state
+        self:SetPos(self:GetPos())
+        self:SetAngles(self:GetAngles())
+        
+        -- Reset physics
+        local phys = self:GetPhysicsObject()
+        if IsValid(phys) then
+            phys:Wake()
+            phys:EnableMotion(true)
+        end
+        
+        -- Clear any error states
+        self:SetNWBool("kyber_error_state", false)
+    end)
+end

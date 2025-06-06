@@ -4,18 +4,8 @@ AddCSLuaFile("shared.lua")
 include("shared.lua")
 
 function ENT:Initialize()
-    self:SetModel("models/props_lab/crematorcase.mdl") -- Replace with bacta tank model
-    self:PhysicsInit(SOLID_VPHYSICS)
-    self:SetMoveType(MOVETYPE_VPHYSICS)
-    self:SetSolid(SOLID_VPHYSICS)
+    KYBER.EntityOptimization.InitializeEntity(self, "models/props_lab/crematorcase.mdl", SOLID_VPHYSICS)
     self:SetUseType(SIMPLE_USE)
-    
-    local phys = self:GetPhysicsObject()
-    if IsValid(phys) then
-        phys:Wake()
-        phys:EnableMotion(false) -- Keep it stationary
-    end
-    
     self:SetTankActive(true)
     self:SetOccupied(false)
     self:SetBactaLevel(100)
@@ -23,14 +13,11 @@ end
 
 function ENT:Use(activator, caller)
     if not IsValid(activator) or not activator:IsPlayer() then return end
-    
     if not self:GetTankActive() then
         activator:ChatPrint("This bacta tank is not operational.")
         return
     end
-    
     if self:GetOccupied() then
-        -- Check if it's the occupant trying to exit
         if self.Occupant == activator then
             self:EjectOccupant()
         else
@@ -38,112 +25,78 @@ function ENT:Use(activator, caller)
         end
         return
     end
-    
     if self:GetBactaLevel() < 10 then
         activator:ChatPrint("Insufficient bacta levels. Refill required.")
         return
     end
-    
-    -- Enter bacta tank
     self:EnterTank(activator)
 end
 
 function ENT:EnterTank(ply)
-    -- Check if injured or damaged
     if ply:Health() >= ply:GetMaxHealth() and #(ply.KyberMedical and ply.KyberMedical.injuries or {}) == 0 then
         ply:ChatPrint("You don't need medical treatment.")
         return
     end
-    
     self.Occupant = ply
     self.OccupantEnterTime = CurTime()
     self:SetOccupied(true)
-    
-    -- Freeze player
     ply:SetMoveType(MOVETYPE_NONE)
     ply:SetPos(self:GetPos() + self:GetUp() * 40)
     ply:SetParent(self)
     ply:SetNoDraw(true)
-    
-    -- Start healing
     self:StartHealing()
-    
-    -- Effects
     self:EmitSound("ambient/water/water_in_boat1.wav")
-    
     ply:ChatPrint("Entering bacta tank. Press E to exit.")
 end
 
 function ENT:StartHealing()
     local timerName = "BactaTank_" .. self:EntIndex()
-    
+    timer.Remove(timerName)
     timer.Create(timerName, 1, 0, function()
-        if not IsValid(self) or not self:GetOccupied() or not IsValid(self.Occupant) then
-            timer.Remove(timerName)
-            return
-        end
-        
-        local ply = self.Occupant
-        
-        -- Check bacta level
-        if self:GetBactaLevel() <= 0 then
-            self:EjectOccupant()
-            return
-        end
-        
-        -- Heal player
-        if ply:Health() < ply:GetMaxHealth() then
-            local healAmount = KYBER.Medical.Config.bactaHealRate
-            ply:SetHealth(math.min(ply:Health() + healAmount, ply:GetMaxHealth()))
-            
-            -- Medical experience for owner
-            if self.MedicalOwner and IsValid(self.MedicalOwner) then
-                KYBER.Medical:GrantMedicalExp(self.MedicalOwner, 2)
+        KYBER.EntityOptimization.SafeEntityOperation(self, function(ent)
+            if not ent:GetOccupied() or not IsValid(ent.Occupant) then
+                timer.Remove(timerName)
+                return
             end
-        end
-        
-        -- Treat injuries
-        if ply.KyberMedical and #ply.KyberMedical.injuries > 0 then
-            for i, injury in ipairs(ply.KyberMedical.injuries) do
-                if not injury.treated then
-                    injury.treated = true
-                    ply:ChatPrint("Bacta treatment healed your " .. KYBER.Medical.Config.injuryTypes[injury.type].name)
-                    
-                    -- Medical experience
-                    if self.MedicalOwner and IsValid(self.MedicalOwner) then
-                        KYBER.Medical:GrantMedicalExp(self.MedicalOwner, injury.severity * 5)
-                    end
-                    
-                    break -- One injury per second
+            local ply = ent.Occupant
+            if ent:GetBactaLevel() <= 0 then
+                ent:EjectOccupant()
+                return
+            end
+            if ply:Health() < ply:GetMaxHealth() then
+                local healAmount = KYBER.Medical.Config.bactaHealRate
+                ply:SetHealth(math.min(ply:Health() + healAmount, ply:GetMaxHealth()))
+                if ent.MedicalOwner and IsValid(ent.MedicalOwner) then
+                    KYBER.Medical:GrantMedicalExp(ent.MedicalOwner, 2)
                 end
             end
-            
-            KYBER.Medical:SendInjuryUpdate(ply)
-        end
-        
-        -- Consume bacta
-        self:SetBactaLevel(math.max(0, self:GetBactaLevel() - 1))
-        
-        -- Charge credits
-        local cost = KYBER.Medical.Config.bactaCostPerSecond
-        local credits = KYBER:GetPlayerData(ply, "credits") or 0
-        
-        if credits >= cost then
-            KYBER:SetPlayerData(ply, "credits", credits - cost)
-        else
-            -- Try bank
-            if ply.KyberBanking and ply.KyberBanking.credits >= cost then
-                ply.KyberBanking.credits = ply.KyberBanking.credits - cost
-                KYBER.Banking:Save(ply)
-            else
-                -- Can't pay, eject
-                ply:ChatPrint("Insufficient credits for bacta treatment.")
-                self:EjectOccupant()
+            if ply.KyberMedical and #ply.KyberMedical.injuries > 0 then
+                for i, injury in ipairs(ply.KyberMedical.injuries) do
+                    if not injury.treated then
+                        injury.treated = true
+                        ply:ChatPrint("Bacta treatment healed your " .. KYBER.Medical.Config.injuryTypes[injury.type].name)
+                        if ent.MedicalOwner and IsValid(ent.MedicalOwner) then
+                            KYBER.Medical:GrantMedicalExp(ent.MedicalOwner, injury.severity * 5)
+                        end
+                        break
+                    end
+                end
+                KYBER.Medical:SendInjuryUpdate(ply)
             end
-        end
-        
-        -- Check if fully healed
-        if ply:Health() >= ply:GetMaxHealth() then
+            ent:SetBactaLevel(math.max(0, ent:GetBactaLevel() - 1))
+            local cost = KYBER.Medical.Config.bactaCostPerSecond
+            local credits = KYBER:GetPlayerData(ply, "credits") or 0
+            if credits >= cost then
+                KYBER:SetPlayerData(ply, "credits", credits - cost)
+            else
+                if ply.KyberBanking and ply.KyberBanking.credits >= cost then
+                    ply.KyberBanking.credits = ply.KyberBanking.credits - cost
+                    KYBER.Banking:Save(ply)
+                else
+                    ply:ChatPrint("Insufficient credits for bacta treatment.")
+                    ent:EjectOccupant()
+                end
+            end
             local allTreated = true
             for _, injury in ipairs(ply.KyberMedical and ply.KyberMedical.injuries or {}) do
                 if not injury.treated then
@@ -151,50 +104,38 @@ function ENT:StartHealing()
                     break
                 end
             end
-            
-            if allTreated then
+            if ply:Health() >= ply:GetMaxHealth() and allTreated then
                 ply:ChatPrint("Treatment complete. You are fully healed.")
-                self:EjectOccupant()
+                ent:EjectOccupant()
             end
-        end
+        end)
     end)
 end
 
 function ENT:EjectOccupant()
     if not IsValid(self.Occupant) then return end
-    
     local ply = self.Occupant
-    
-    -- Unfreeze player
     ply:SetParent(nil)
     ply:SetMoveType(MOVETYPE_WALK)
     ply:SetPos(self:GetPos() + self:GetForward() * 60 + Vector(0, 0, 10))
     ply:SetNoDraw(false)
-    
-    -- Calculate treatment time
-    local treatmentTime = CurTime() - self.OccupantEnterTime
-    local totalCost = math.floor(treatmentTime * KYBER.Medical.Config.bactaCostPerSecond)
-    
+    local treatmentTime = CurTime() - (self.OccupantEnterTime or CurTime())
+    local totalCost = math.floor(treatmentTime * (KYBER.Medical.Config.bactaCostPerSecond or 1))
     ply:ChatPrint("Bacta treatment complete. Duration: " .. math.floor(treatmentTime) .. " seconds. Cost: " .. totalCost .. " credits.")
-    
-    -- Clear occupant
     self.Occupant = nil
     self.OccupantEnterTime = nil
     self:SetOccupied(false)
-    
-    -- Stop healing timer
     timer.Remove("BactaTank_" .. self:EntIndex())
-    
-    -- Effects
     self:EmitSound("ambient/water/water_splash3.wav")
 end
 
 function ENT:OnRemove()
-    if IsValid(self.Occupant) then
-        self:EjectOccupant()
-    end
-    
-    timer.Remove("BactaTank_" .. self:EntIndex())
+    KYBER.EntityOptimization.OptimizedCleanup(self, function(ent)
+        if IsValid(ent.Occupant) then
+            ent:EjectOccupant()
+        end
+        timer.Remove("BactaTank_" .. ent:EntIndex())
+    end)
 end
 
 -- kyber/entities/entities/kyber_bacta_tank/cl_init.lua

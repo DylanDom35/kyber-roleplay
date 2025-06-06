@@ -1,43 +1,34 @@
--- kyber/entities/entities/kyber_galaxy_terminal/init.lua
+-- kyber/entities/entities/kyber_galaxy_terminal/sh_galaxy_terminal_entity.lua
 AddCSLuaFile("cl_init.lua")
 AddCSLuaFile("shared.lua")
 include("shared.lua")
 
 function ENT:Initialize()
-    self:SetModel("models/props_combine/combine_interface001.mdl")
-    self:PhysicsInit(SOLID_VPHYSICS)
-    self:SetMoveType(MOVETYPE_VPHYSICS)
-    self:SetSolid(SOLID_VPHYSICS)
+    KYBER.EntityOptimization.InitializeEntity(self, "models/props_combine/breenconsole.mdl", SOLID_VPHYSICS)
     self:SetUseType(SIMPLE_USE)
-    
-    local phys = self:GetPhysicsObject()
-    if IsValid(phys) then
-        phys:Wake()
-    end
-    
-    -- Terminal settings
     self:SetTerminalActive(true)
-    self:SetTerminalType("spaceport") -- Can be "spaceport" or "local"
 end
 
 function ENT:Use(activator, caller)
     if not IsValid(activator) or not activator:IsPlayer() then return end
-    if not self:GetTerminalActive() then 
-        activator:ChatPrint("This terminal is offline.")
-        return 
+    if not self:GetTerminalActive() then
+        activator:ChatPrint("This galaxy terminal is offline.")
+        return
     end
-    
-    -- Send appropriate network message based on terminal type
-    if self:GetTerminalType() == "spaceport" then
-        net.Start("Kyber_OpenGalaxyMap")
-        net.Send(activator)
-    else
-        net.Start("Kyber_OpenLocalTravel")
-        net.Send(activator)
-    end
-    
-    -- Sound effect
-    self:EmitSound("buttons/button3.wav")
+    self:OpenGalaxyUI(activator)
+end
+
+function ENT:OpenGalaxyUI(ply)
+    -- Networking logic to open UI (placeholder)
+    net.Start("Kyber_Galaxy_OpenTerminal")
+    net.WriteEntity(self)
+    net.Send(ply)
+end
+
+function ENT:OnRemove()
+    KYBER.EntityOptimization.OptimizedCleanup(self, function(ent)
+        -- Add any additional cleanup logic here if needed
+    end)
 end
 
 function ENT:SpawnFunction(ply, tr, ClassName)
