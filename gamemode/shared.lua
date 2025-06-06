@@ -2,8 +2,8 @@
 
 -- Gamemode info
 GM.Name = "Kyber RP"
-GM.Author = "Kyber Development Team"
-GM.Email = ""
+GM.Author = "Acrowe"
+GM.Email = "nightshadowx1@gmail.com"
 GM.Website = ""
 GM.Base = "base" -- Set base gamemode
 
