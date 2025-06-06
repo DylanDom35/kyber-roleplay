@@ -73,18 +73,20 @@ if SERVER then
         local charName = ply:GetNWString("kyber_name", "default")
         local path = "kyber/comms/" .. steamID .. "_" .. charName .. ".json"
         
-        if file.Exists(path, "DATA") then
-            local data = file.Read(path, "DATA")
-            local saved = util.JSONToTable(data)
-            if saved then
-                ply.KyberComms.messages = saved.messages or {}
-                ply.KyberComms.contacts = saved.contacts or {}
-                ply.KyberComms.blocked = saved.blocked or {}
-                
-                -- Clean expired messages
-                self:CleanExpiredMessages(ply)
+        KYBER.Optimization.SafeCall(function()
+            if file.Exists(path, "DATA") then
+                local data = file.Read(path, "DATA")
+                local saved = util.JSONToTable(data)
+                if saved then
+                    ply.KyberComms.messages = saved.messages or {}
+                    ply.KyberComms.contacts = saved.contacts or {}
+                    ply.KyberComms.blocked = saved.blocked or {}
+                    
+                    -- Clean expired messages
+                    self:CleanExpiredMessages(ply)
+                end
             end
-        end
+        end)
     end
     
     function KYBER.Comms:Save(ply)
@@ -94,17 +96,22 @@ if SERVER then
         local charName = ply:GetNWString("kyber_name", "default")
         local path = "kyber/comms/" .. steamID .. "_" .. charName .. ".json"
         
-        if not file.Exists("kyber/comms", "DATA") then
-            file.CreateDir("kyber/comms")
-        end
-        
-        local data = {
-            messages = ply.KyberComms.messages,
-            contacts = ply.KyberComms.contacts,
-            blocked = ply.KyberComms.blocked
-        }
-        
-        file.Write(path, util.TableToJSON(data))
+        KYBER.Optimization.SafeCall(function()
+            if not file.Exists("kyber/comms", "DATA") then
+                file.CreateDir("kyber/comms")
+            end
+            
+            -- Create backup
+            if file.Exists(path, "DATA") then
+                file.Write(path .. ".backup", file.Read(path, "DATA"))
+            end
+            
+            file.Write(path, util.TableToJSON({
+                messages = ply.KyberComms.messages,
+                contacts = ply.KyberComms.contacts,
+                blocked = ply.KyberComms.blocked
+            }))
+        end)
     end
     
     -- Holocom system
@@ -468,29 +475,48 @@ if SERVER then
     end
     
     function KYBER.Comms:LoadNews()
-        if file.Exists("kyber/comms/newsboard.json", "DATA") then
-            self.NewsBoard = util.JSONToTable(file.Read("kyber/comms/newsboard.json", "DATA")) or {}
-            
-            -- Clean expired posts
-            local time = os.time()
-            for i = #self.NewsBoard, 1, -1 do
-                if self.NewsBoard[i].expires < time then
-                    table.remove(self.NewsBoard, i)
+        KYBER.Optimization.SafeCall(function()
+            if file.Exists("kyber/comms/newsboard.json", "DATA") then
+                self.NewsBoard = util.JSONToTable(file.Read("kyber/comms/newsboard.json", "DATA")) or {}
+                
+                -- Clean expired posts
+                local time = os.time()
+                for i = #self.NewsBoard, 1, -1 do
+                    if self.NewsBoard[i].expires < time then
+                        table.remove(self.NewsBoard, i)
+                    end
                 end
             end
-        end
+        end)
     end
     
-    -- Network handlers
+    -- Network handlers with rate limiting
+    local messageCooldowns = {}
+    local function IsRateLimited(ply, messageType, cooldown)
+        local key = ply:SteamID64() .. "_" .. messageType
+        local lastTime = messageCooldowns[key] or 0
+        
+        if CurTime() - lastTime < cooldown then
+            return true
+        end
+        
+        messageCooldowns[key] = CurTime()
+        return false
+    end
+    
     net.Receive("Kyber_Comms_StartCall", function(len, ply)
+        if IsRateLimited(ply, "StartCall", 1) then return end
+        
         local target = net.ReadEntity()
         local quality = net.ReadInt(4)
         
-        local success, err = KYBER.Comms:StartHoloCall(ply, target, quality)
-        
-        if not success then
-            ply:ChatPrint("Call failed: " .. err)
-        end
+        KYBER.Optimization.SafeCall(function()
+            local success, err = KYBER.Comms:StartHoloCall(ply, target, quality)
+            
+            if not success then
+                ply:ChatPrint("Call failed: " .. err)
+            end
+        end)
     end)
     
     net.Receive("Kyber_Comms_EndCall", function(len, ply)
@@ -498,23 +524,31 @@ if SERVER then
     end)
     
     net.Receive("Kyber_Comms_SendMessage", function(len, ply)
+        if IsRateLimited(ply, "SendMessage", 0.5) then return end
+        
         local recipient = net.ReadString()
         local subject = net.ReadString()
         local content = net.ReadString()
         local attachments = net.ReadTable()
         local encrypted = net.ReadInt(4)
         
-        KYBER.Comms:SendMessage(ply, recipient, subject, content, attachments, encrypted)
+        KYBER.Optimization.SafeCall(function()
+            KYBER.Comms:SendMessage(ply, recipient, subject, content, attachments, encrypted)
+        end)
     end)
     
     net.Receive("Kyber_Comms_Broadcast", function(len, ply)
+        if IsRateLimited(ply, "Broadcast", 5) then return end
+        
         local message = net.ReadString()
         
-        local success, err = KYBER.Comms:SendFactionBroadcast(ply, message)
-        
-        if not success then
-            ply:ChatPrint("Broadcast failed: " .. err)
-        end
+        KYBER.Optimization.SafeCall(function()
+            local success, err = KYBER.Comms:SendFactionBroadcast(ply, message)
+            
+            if not success then
+                ply:ChatPrint("Broadcast failed: " .. err)
+            end
+        end)
     end)
     
     net.Receive("Kyber_Comms_DistressBeacon", function(len, ply)

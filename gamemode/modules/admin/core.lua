@@ -238,35 +238,38 @@ end
 
 -- Logging system
 function KYBER.Admin:LogAction(admin, action, details, target)
-    local logEntry = {
-        admin = admin,
-        adminID = IsValid(admin) and admin:SteamID64() or "CONSOLE",
-        action = action,
-        details = details,
-        target = target,
-        timestamp = os.time()
-    }
-    
-    -- Ensure log directory exists
-    if not file.Exists("kyber/admin/logs", "DATA") then
-        file.CreateDir("kyber/admin/logs")
-    end
-    
-    -- Write to daily log file
-    local date = os.date("%Y-%m-%d", os.time())
-    local logFile = "kyber/admin/logs/" .. date .. ".json"
-    
-    local logs = {}
-    if file.Exists(logFile, "DATA") then
-        logs = util.JSONToTable(file.Read(logFile, "DATA")) or {}
-    end
-    
-    table.insert(logs, logEntry)
-    file.Write(logFile, util.TableToJSON(logs))
-    
-    -- Also log to console
-    print(string.format("[ADMIN] %s (%s) %s: %s", 
-        logEntry.admin, logEntry.adminID, action, details))
+    KYBER.Optimization.SafeCall(function()
+        if not file.Exists("kyber/admin/logs", "DATA") then
+            file.CreateDir("kyber/admin/logs")
+        end
+        
+        local date = os.date("%Y-%m-%d")
+        local logFile = "kyber/admin/logs/" .. date .. ".json"
+        
+        -- Load existing logs
+        local logs = {}
+        if file.Exists(logFile, "DATA") then
+            logs = util.JSONToTable(file.Read(logFile, "DATA")) or {}
+        end
+        
+        -- Add new log
+        table.insert(logs, {
+            timestamp = os.time(),
+            admin = admin:SteamID64(),
+            adminName = admin:Nick(),
+            action = action,
+            target = target,
+            details = details
+        })
+        
+        -- Create backup
+        if file.Exists(logFile, "DATA") then
+            file.Write(logFile .. ".backup", file.Read(logFile, "DATA"))
+        end
+        
+        -- Save logs
+        file.Write(logFile, util.TableToJSON(logs))
+    end)
 end
 
 -- Get admin logs
@@ -274,21 +277,23 @@ function KYBER.Admin:GetLogs(days)
     days = days or 7
     local logs = {}
     
-    for i = 0, days - 1 do
-        local date = os.date("%Y-%m-%d", os.time() - (i * 86400))
-        local logFile = "kyber/admin/logs/" .. date .. ".json"
-        
-        if file.Exists(logFile, "DATA") then
-            local dayLogs = util.JSONToTable(file.Read(logFile, "DATA")) or {}
-            for _, log in ipairs(dayLogs) do
-                table.insert(logs, log)
+    KYBER.Optimization.SafeCall(function()
+        for i = 0, days - 1 do
+            local date = os.date("%Y-%m-%d", os.time() - (i * 86400))
+            local logFile = "kyber/admin/logs/" .. date .. ".json"
+            
+            if file.Exists(logFile, "DATA") then
+                local dayLogs = util.JSONToTable(file.Read(logFile, "DATA")) or {}
+                for _, log in ipairs(dayLogs) do
+                    table.insert(logs, log)
+                end
             end
         end
-    end
-    
-    -- Sort by timestamp (newest first)
-    table.sort(logs, function(a, b)
-        return a.timestamp > b.timestamp
+        
+        -- Sort by timestamp (newest first)
+        table.sort(logs, function(a, b)
+            return a.timestamp > b.timestamp
+        end)
     end)
     
     return logs
@@ -334,17 +339,19 @@ function KYBER.Admin:SetupHooks()
         
         -- Network handlers
         net.Receive("Kyber_Admin_ExecuteCommand", function(len, ply)
+            if not KYBER.Admin:IsAdmin(ply) then return end
+            if IsRateLimited(ply, "ExecuteCommand", 0.5) then return end
+            
             local command = net.ReadString()
             local args = net.ReadTable()
             
-            -- Verify admin status
-            if not self:IsAdmin(ply) then
-                ply:ChatPrint("Access denied")
-                return
-            end
-            
-            -- Execute command
-            hook.Run("Kyber_Admin_ExecuteCommand", ply, command, args)
+            KYBER.Optimization.SafeCall(function()
+                local success, err = KYBER.Admin:ExecuteCommand(ply, command, args)
+                
+                if not success then
+                    ply:ChatPrint("Command failed: " .. err)
+                end
+            end)
         end)
         
         net.Receive("Kyber_Admin_RequestData", function(len, ply)
@@ -577,3 +584,17 @@ end
 KYBER.Admin.IsAdmin = function(ply, level) return KYBER.Admin:IsAdmin(ply, level) end
 KYBER.Admin.HasPermission = function(ply, perm) return KYBER.Admin:HasPermission(ply, perm) end
 KYBER.Admin.GetAdminLevel = function(ply) return KYBER.Admin:GetAdminLevel(ply) end
+
+-- Network handlers with rate limiting
+local messageCooldowns = {}
+local function IsRateLimited(ply, messageType, cooldown)
+    local key = ply:SteamID64() .. "_" .. messageType
+    local lastTime = messageCooldowns[key] or 0
+    
+    if CurTime() - lastTime < cooldown then
+        return true
+    end
+    
+    messageCooldowns[key] = CurTime()
+    return false
+end

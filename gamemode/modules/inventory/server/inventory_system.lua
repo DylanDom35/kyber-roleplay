@@ -53,11 +53,34 @@ if SERVER then
         local steamID = ply:SteamID64()
         local path = "kyber/inventories/" .. steamID .. ".json"
         
-        if not file.Exists("kyber/inventories", "DATA") then
-            file.CreateDir("kyber/inventories")
-        end
+        KYBER.Optimization.SafeCall(function()
+            if not file.Exists("kyber/inventories", "DATA") then
+                file.CreateDir("kyber/inventories")
+            end
+            
+            -- Create backup
+            if file.Exists(path, "DATA") then
+                file.Write(path .. ".backup", file.Read(path, "DATA"))
+            end
+            
+            file.Write(path, util.TableToJSON(ply.KyberInventory))
+        end)
+    end
+    
+    function KYBER.Inventory:GetPage(ply, page, pageSize)
+        pageSize = pageSize or 10
+        local start = (page - 1) * pageSize + 1
+        local finish = start + pageSize - 1
         
-        file.Write(path, util.TableToJSON(ply.KyberInventory))
+        return KYBER.Optimization.GetCached("inventory", ply:SteamID64() .. "_" .. page, function()
+            local items = {}
+            for i = start, finish do
+                if ply.KyberInventory[i] then
+                    items[i] = ply.KyberInventory[i]
+                end
+            end
+            return items
+        end)
     end
     
     -- Item management

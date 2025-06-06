@@ -64,8 +64,18 @@ if SERVER then
     end
     
     function KYBER.ForceLottery:SaveData()
-        file.Write("kyber/forcelottery/history.json", util.TableToJSON(self.History))
-        file.Write("kyber/forcelottery/nextlottery.txt", tostring(self.NextLotteryTime))
+        KYBER.Optimization.SafeCall(function()
+            -- Create backup
+            if file.Exists("kyber/forcelottery/history.json", "DATA") then
+                file.Write("kyber/forcelottery/history.json.backup", file.Read("kyber/forcelottery/history.json", "DATA"))
+            end
+            if file.Exists("kyber/forcelottery/nextlottery.txt", "DATA") then
+                file.Write("kyber/forcelottery/nextlottery.txt.backup", file.Read("kyber/forcelottery/nextlottery.txt", "DATA"))
+            end
+            
+            file.Write("kyber/forcelottery/history.json", util.TableToJSON(self.History))
+            file.Write("kyber/forcelottery/nextlottery.txt", tostring(self.NextLotteryTime))
+        end)
     end
     
     -- Check if player is eligible
@@ -271,23 +281,25 @@ if SERVER then
         
         -- Main lottery timer
         timer.Create("KyberForceLotteryMain", 1, 0, function()
-            local timeLeft = self.NextLotteryTime - os.time()
-            
-            if timeLeft <= 0 then
-                self:RunLottery()
-                timer.Remove("KyberForceLotteryMain")
-            elseif self.Config.announceCountdown then
-                -- Check countdown announcements
-                for _, countdownTime in ipairs(self.Config.countdownTimes) do
-                    if timeLeft == countdownTime then
-                        net.Start("Kyber_ForceLottery_Announce")
-                        net.WriteString("Force Lottery in " .. string.NiceTime(countdownTime) .. "! Use /forcelottery to enter!")
-                        net.WriteBool(false)
-                        net.Broadcast()
-                        break
+            KYBER.Optimization.SafeCall(function()
+                local timeLeft = self.NextLotteryTime - os.time()
+                
+                if timeLeft <= 0 then
+                    self:RunLottery()
+                    timer.Remove("KyberForceLotteryMain")
+                elseif self.Config.announceCountdown then
+                    -- Check countdown announcements
+                    for _, countdownTime in ipairs(self.Config.countdownTimes) do
+                        if timeLeft == countdownTime then
+                            net.Start("Kyber_ForceLottery_Announce")
+                            net.WriteString("Force Lottery in " .. string.NiceTime(countdownTime) .. "! Use /forcelottery to enter!")
+                            net.WriteBool(false)
+                            net.Broadcast()
+                            break
+                        end
                     end
                 end
-            end
+            end)
         end)
     end
     

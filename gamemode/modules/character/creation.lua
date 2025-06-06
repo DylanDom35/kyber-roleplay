@@ -318,23 +318,25 @@ if SERVER then
         timer.Simple(1, function()
             if not IsValid(ply) then return end
             
-            local hasChar, _ = KYBER.Character:HasCharacter(ply)
-            
-            if not hasChar then
-                -- New player - open character creation
-                net.Start("Kyber_Character_OpenCreation")
-                net.WriteTable(KYBER.Character.Config.models)
-                net.Send(ply)
+            KYBER.Optimization.SafeCall(function()
+                local hasChar, _ = KYBER.Character:HasCharacter(ply)
                 
-                print("[Kyber] Opened character creation for new player: " .. ply:Nick())
-            else
-                -- Load existing character
-                local characterData = KYBER.Character:LoadCharacter(ply)
-                if characterData then
-                    KYBER.Character:ApplyCharacter(ply, characterData)
-                    print("[Kyber] Loaded existing character '" .. characterData.name .. "' for " .. ply:Nick())
+                if not hasChar then
+                    -- New player - open character creation
+                    net.Start("Kyber_Character_OpenCreation")
+                    net.WriteTable(KYBER.Character.Config.models)
+                    net.Send(ply)
+                    
+                    print("[Kyber] Opened character creation for new player: " .. ply:Nick())
+                else
+                    -- Load existing character
+                    local characterData = KYBER.Character:LoadCharacter(ply)
+                    if characterData then
+                        KYBER.Character:ApplyCharacter(ply, characterData)
+                        print("[Kyber] Loaded existing character '" .. characterData.name .. "' for " .. ply:Nick())
+                    end
                 end
-            end
+            end)
         end)
     end)
     

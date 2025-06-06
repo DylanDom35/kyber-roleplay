@@ -171,11 +171,13 @@ if SERVER then
     hook.Add("PlayerSpawn", "KyberSpawnManager", function(ply)
         timer.Simple(0.1, function()
             if IsValid(ply) then
-                local pos, ang = KYBER.SpawnManager:GetSpawnPoint(ply)
-                ply:SetPos(pos)
-                if ang then
-                    ply:SetEyeAngles(ang)
-                end
+                KYBER.Optimization.SafeCall(function()
+                    local pos, ang = KYBER.SpawnManager:GetSpawnPoint(ply)
+                    ply:SetPos(pos)
+                    if ang then
+                        ply:SetEyeAngles(ang)
+                    end
+                end)
             end
         end)
     end)

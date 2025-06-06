@@ -716,3 +716,42 @@ else -- CLIENT
         end
     end)
 end
+
+function KYBER.Equipment:GetCachedStats(ply)
+    return KYBER.Optimization.GetCached("equipment_stats", ply:SteamID64(), function()
+        return self:CalculateStats(ply)
+    end)
+end
+
+function KYBER.Equipment:CalculateStats(ply)
+    local stats = {
+        armor = 0,
+        speed = 0,
+        accuracy = 0,
+        perception = 0,
+        stealth = 0,
+        intimidation = 0,
+        force_regen = 0,
+        agility = 0,
+        blaster_resist = 0,
+        healing_bonus = 0
+    }
+    
+    -- Sum up all equipment stats
+    for slot, equipped in pairs(ply.KyberEquipment) do
+        local item = self.Items[equipped.id]
+        if item and item.stats then
+            for stat, value in pairs(item.stats) do
+                stats[stat] = (stats[stat] or 0) + value
+            end
+        end
+    end
+    
+    -- Apply stat effects
+    self:ApplyStats(ply, stats)
+    
+    -- Store for reference
+    ply.KyberStats = stats
+    
+    return stats
+end

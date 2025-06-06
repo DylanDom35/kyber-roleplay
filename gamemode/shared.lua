@@ -769,3 +769,423 @@ KYBER.Credits = {
         KYBER.Credits.Set(ply, math.max(0, current - amount))
     end
 }
+
+function KYBER.SQL.Query(query, callback, errorCallback)
+    -- Add timeout
+    local timeout = timer.Simple(30, function()
+        if errorCallback then
+            errorCallback("Query timeout")
+        end
+    end)
+    
+    -- Add connection pool
+    local conn = KYBER.SQL.GetConnection()
+    if not conn then
+        if errorCallback then
+            errorCallback("No database connection available")
+        end
+        return false
+    end
+    
+    -- Execute query with error handling
+    local success, result = pcall(function()
+        return conn:query(query)
+    end)
+    
+    -- Cleanup
+    KYBER.SQL.ReleaseConnection(conn)
+    timer.Remove(timeout)
+    
+    if not success then
+        if errorCallback then
+            errorCallback(result)
+        end
+        return false
+    end
+    
+    if callback then
+        callback(result)
+    end
+    
+    return true
+end
+
+function KYBER.SQL.Transaction(queries, callback, errorCallback)
+    local conn = KYBER.SQL.GetConnection()
+    if not conn then
+        if errorCallback then
+            errorCallback("No database connection available")
+        end
+        return false
+    end
+    
+    -- Start transaction
+    conn:query("START TRANSACTION")
+    
+    local success = true
+    for _, query in ipairs(queries) do
+        local result = conn:query(query)
+        if not result then
+            success = false
+            break
+        end
+    end
+    
+    if success then
+        conn:query("COMMIT")
+        if callback then callback() end
+    else
+        conn:query("ROLLBACK")
+        if errorCallback then errorCallback("Transaction failed") end
+    end
+    
+    KYBER.SQL.ReleaseConnection(conn)
+    return success
+end
+
+function KYBER.LogError(message, data)
+    local log = {
+        timestamp = os.time(),
+        level = "ERROR",
+        message = message,
+        data = data
+    }
+    
+    -- Log to file
+    file.Append("kyber/logs/error.log", util.TableToJSON(log) .. "\n")
+    
+    -- Log to console
+    print("[KYBER ERROR] " .. message)
+    
+    -- Notify admins if critical
+    if data and data.critical then
+        KYBER.Admin.Notify(log)
+    end
+end
+
+function KYBER.Character.Validate(data)
+    if not data then return false end
+    
+    -- Validate required fields
+    if not data.name or not data.species then
+        return false
+    end
+    
+    -- Validate name format
+    if not string.match(data.name, "^[%w%s-]{3,32}$") then
+        return false
+    end
+    
+    -- Validate species
+    if not KYBER.Config.Get("species")[data.species] then
+        return false
+    end
+    
+    return true
+end
+
+function KYBER.UI.Panel:Cleanup()
+    -- Remove all timers
+    for _, timerName in ipairs(self.timers or {}) do
+        timer.Remove(timerName)
+    end
+    
+    -- Remove all hooks
+    for _, hookName in ipairs(self.hooks or {}) do
+        hook.Remove(hookName)
+    end
+    
+    -- Remove all children
+    for _, child in pairs(self:GetChildren()) do
+        if IsValid(child) then
+            child:Remove()
+        end
+    end
+    
+    -- Remove panel
+    self:Remove()
+end
+
+-- Fixed version
+local function CreateSafeTimer(name, interval, repetitions, callback)
+    -- Remove existing timer if it exists
+    timer.Remove(name)
+    
+    -- Create new timer with cleanup
+    timer.Create(name, interval, repetitions, function()
+        if not IsValid(game.GetWorld()) then
+            timer.Remove(name)
+            return
+        end
+        
+        local success, err = pcall(callback)
+        if not success then
+            print("[KYBER ERROR] Timer " .. name .. " failed: " .. tostring(err))
+            timer.Remove(name)
+        end
+    end)
+end
+
+-- Add to your network handling
+local messageCooldowns = {}
+local function IsRateLimited(ply, messageType, cooldown)
+    local key = ply:SteamID64() .. "_" .. messageType
+    local lastTime = messageCooldowns[key] or 0
+    
+    if CurTime() - lastTime < cooldown then
+        return true
+    end
+    
+    messageCooldowns[key] = CurTime()
+    return false
+end
+
+-- Use in network handlers
+net.Receive("Kyber_SomeMessage", function(len, ply)
+    if IsRateLimited(ply, "SomeMessage", 0.5) then return end
+    -- Handle message
+end)
+
+-- Add to your gamemode
+function KYBER.RecoverFromError()
+    -- Clear all caches
+    for _, system in pairs(KYBER) do
+        if type(system) == "table" and system.ClearCache then
+            system:ClearCache()
+        end
+    end
+    
+    -- Reset file locks
+    fileLocks = {}
+    
+    -- Force garbage collection
+    collectgarbage("collect")
+    
+    -- Reinitialize systems
+    for _, system in pairs(KYBER) do
+        if type(system) == "table" and system.Initialize then
+            system:Initialize()
+        end
+    end
+end
+
+-- Add error handling to critical functions
+function KYBER.SafeCall(func, ...)
+    local success, result = pcall(func, ...)
+    if not success then
+        print("[KYBER ERROR] " .. tostring(result))
+        KYBER.RecoverFromError()
+        return false
+    end
+    return result
+end
+
+-- Add to your gamemode
+function KYBER.Cleanup()
+    -- Remove all timers
+    for _, timerName in ipairs(timer.GetTable()) do
+        if string.find(timerName, "Kyber") then
+            timer.Remove(timerName)
+        end
+    end
+    
+    -- Remove all hooks
+    for _, hookName in ipairs(hook.GetTable()) do
+        if string.find(hookName, "Kyber") then
+            hook.Remove(hookName)
+        end
+    end
+    
+    -- Cleanup UI
+    for _, panel in pairs(KYBER.UI.ActivePanels) do
+        if IsValid(panel) then
+            panel:Cleanup()
+        end
+    end
+    
+    -- Clear tables
+    KYBER.UI.ActivePanels = {}
+    KYBER.Cache = {}
+end
+
+hook.Add("ShutDown", "KyberCleanup", KYBER.Cleanup)
+
+-- Add to your UI system
+local lastUpdate = 0
+local UPDATE_INTERVAL = 1/30 -- 30 FPS
+
+function KYBER.UI.Update()
+    local currentTime = CurTime()
+    if currentTime - lastUpdate < UPDATE_INTERVAL then
+        return
+    end
+    
+    lastUpdate = currentTime
+    
+    -- Update UI elements
+    for _, panel in pairs(KYBER.UI.ActivePanels) do
+        if IsValid(panel) then
+            panel:Update()
+        else
+            KYBER.UI.ActivePanels[panel] = nil
+        end
+    end
+end
+
+hook.Add("Think", "KyberUIUpdate", KYBER.UI.Update)
+
+-- Add to your file operations
+local fileLocks = {}
+local function SafeFileOperation(path, operation)
+    if fileLocks[path] then
+        return false, "File is locked"
+    end
+    
+    fileLocks[path] = true
+    
+    local success, result = pcall(function()
+        return operation()
+    end)
+    
+    fileLocks[path] = nil
+    
+    if not success then
+        print("[KYBER ERROR] File operation failed: " .. tostring(result))
+        return false, result
+    end
+    
+    return true, result
+end
+
+-- Use in your file operations
+function KYBER.Banking:Save(ply)
+    if not IsValid(ply) or not ply.KyberBanking then return end
+    
+    local path = "kyber/banking/" .. ply:SteamID64() .. ".json"
+    
+    SafeFileOperation(path, function()
+        -- Create backup
+        if file.Exists(path, "DATA") then
+            file.Write(path .. ".backup", file.Read(path, "DATA"))
+        end
+        
+        -- Write new data
+        file.Write(path, util.TableToJSON(ply.KyberBanking))
+    end)
+end
+
+-- Add to your equipment system
+local statCache = {}
+local CACHE_DURATION = 1 -- seconds
+
+function KYBER.Equipment:GetCachedStats(ply)
+    local key = ply:SteamID64()
+    local cache = statCache[key]
+    
+    if cache and (CurTime() - cache.time) < CACHE_DURATION then
+        return cache.stats
+    end
+    
+    local stats = self:CalculateStats(ply)
+    statCache[key] = {
+        time = CurTime(),
+        stats = stats
+    }
+    
+    return stats
+end
+
+-- Cleanup old cache entries
+timer.Create("KyberEquipmentCacheCleanup", 60, 0, function()
+    local currentTime = CurTime()
+    for key, cache in pairs(statCache) do
+        if (currentTime - cache.time) > CACHE_DURATION then
+            statCache[key] = nil
+        end
+    end
+end)
+
+-- Add to your gamemode
+function KYBER.MemoryOptimize()
+    -- Clear unused caches
+    for _, system in pairs(KYBER) do
+        if type(system) == "table" and system.ClearCache then
+            system:ClearCache()
+        end
+    end
+    
+    -- Force garbage collection
+    collectgarbage("collect")
+end
+
+-- Run optimization periodically
+timer.Create("KyberMemoryOptimize", 300, 0, KYBER.MemoryOptimize)
+
+-- Add to your Think hooks
+local lastThink = 0
+local THINK_INTERVAL = 1/30 -- 30 FPS
+
+function KYBER.OptimizedThink()
+    local currentTime = CurTime()
+    if currentTime - lastThink < THINK_INTERVAL then
+        return
+    end
+    
+    lastThink = currentTime
+    
+    -- Run heavy calculations
+    for _, ply in ipairs(player.GetAll()) do
+        if IsValid(ply) then
+            KYBER.Equipment:GetCachedStats(ply)
+        end
+    end
+end
+
+hook.Add("Think", "KyberOptimizedThink", KYBER.OptimizedThink)
+
+-- Add to your inventory system
+function KYBER.Inventory:GetPage(ply, page, pageSize)
+    pageSize = pageSize or 10
+    local start = (page - 1) * pageSize + 1
+    local finish = start + pageSize - 1
+    
+    local items = {}
+    for i = start, finish do
+        if ply.KyberInventory[i] then
+            items[i] = ply.KyberInventory[i]
+        end
+    end
+    
+    return items
+end
+
+-- Add to your gamemode
+function KYBER.MonitorPerformance()
+    local stats = {
+        memory = collectgarbage("count"),
+        players = #player.GetAll(),
+        entities = #ents.GetAll(),
+        timers = #timer.GetTable(),
+        hooks = #hook.GetTable()
+    }
+    
+    -- Log if any metric is concerning
+    if stats.memory > 1000000 then -- 1GB
+        print("[KYBER WARNING] High memory usage: " .. stats.memory .. "KB")
+    end
+    
+    if stats.timers > 100 then
+        print("[KYBER WARNING] High timer count: " .. stats.timers)
+    end
+    
+    -- Store stats for analysis
+    KYBER.PerformanceStats = KYBER.PerformanceStats or {}
+    table.insert(KYBER.PerformanceStats, stats)
+    
+    -- Keep only last hour of stats
+    if #KYBER.PerformanceStats > 3600 then
+        table.remove(KYBER.PerformanceStats, 1)
+    end
+end
+
+timer.Create("KyberPerformanceMonitor", 1, 0, KYBER.MonitorPerformance)

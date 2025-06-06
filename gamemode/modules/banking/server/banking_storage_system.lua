@@ -98,11 +98,18 @@ if SERVER then
         local charName = ply:GetNWString("kyber_name", "default")
         local path = "kyber/banking/" .. steamID .. "_" .. charName .. ".json"
         
-        if not file.Exists("kyber/banking", "DATA") then
-            file.CreateDir("kyber/banking")
-        end
-        
-        file.Write(path, util.TableToJSON(ply.KyberBanking))
+        KYBER.Optimization.SafeCall(function()
+            if not file.Exists("kyber/banking", "DATA") then
+                file.CreateDir("kyber/banking")
+            end
+            
+            -- Create backup
+            if file.Exists(path, "DATA") then
+                file.Write(path .. ".backup", file.Read(path, "DATA"))
+            end
+            
+            file.Write(path, util.TableToJSON(ply.KyberBanking))
+        end)
     end
     
     -- Load faction storage
@@ -136,7 +143,15 @@ if SERVER then
         end
         
         local path = "kyber/banking/faction_" .. factionID .. ".json"
-        file.Write(path, util.TableToJSON(KYBER.Banking.FactionStorage[factionID]))
+        
+        KYBER.Optimization.SafeCall(function()
+            -- Create backup
+            if file.Exists(path, "DATA") then
+                file.Write(path .. ".backup", file.Read(path, "DATA"))
+            end
+            
+            file.Write(path, util.TableToJSON(KYBER.Banking.FactionStorage[factionID]))
+        end)
     end
     
     -- Calculate interest
@@ -1129,6 +1144,15 @@ if SERVER then
         else
             ply:ChatPrint("Retrieval failed: " .. err)
         end
+    end)
+end
+
+function KYBER.Banking:GetCachedData(ply)
+    return KYBER.Optimization.GetCached("banking", ply:SteamID64(), function()
+        return {
+            personal = ply.KyberBanking,
+            faction = KYBER.Banking.FactionStorage[ply:GetNWString("kyber_faction", "")]
+        }
     end)
 end
             

@@ -51,33 +51,59 @@ if SERVER then
     util.AddNetworkString("Kyber_GE_UpdateListings")
     util.AddNetworkString("Kyber_GE_CollectEarnings")
     
+    -- Network handlers with rate limiting
+    local messageCooldowns = {}
+    local function IsRateLimited(ply, messageType, cooldown)
+        local key = ply:SteamID64() .. "_" .. messageType
+        local lastTime = messageCooldowns[key] or 0
+        
+        if CurTime() - lastTime < cooldown then
+            return true
+        end
+        
+        messageCooldowns[key] = CurTime()
+        return false
+    end
+    
     -- Database simulation (replace with actual MySQL/web API)
     function KYBER.GrandExchange:LoadDatabase()
-        if not file.Exists("kyber/grandexchange", "DATA") then
-            file.CreateDir("kyber/grandexchange")
-        end
-        
-        if file.Exists("kyber/grandexchange/listings.json", "DATA") then
-            local data = file.Read("kyber/grandexchange/listings.json", "DATA")
-            self.Listings = util.JSONToTable(data) or {}
-        else
-            self.Listings = {}
-        end
-        
-        if file.Exists("kyber/grandexchange/history.json", "DATA") then
-            local data = file.Read("kyber/grandexchange/history.json", "DATA")
-            self.History = util.JSONToTable(data) or {}
-        else
-            self.History = {}
-        end
-        
-        -- Clean up expired listings
-        self:CleanupExpiredListings()
+        KYBER.Optimization.SafeCall(function()
+            if not file.Exists("kyber/grandexchange", "DATA") then
+                file.CreateDir("kyber/grandexchange")
+            end
+            
+            if file.Exists("kyber/grandexchange/listings.json", "DATA") then
+                local data = file.Read("kyber/grandexchange/listings.json", "DATA")
+                self.Listings = util.JSONToTable(data) or {}
+            else
+                self.Listings = {}
+            end
+            
+            if file.Exists("kyber/grandexchange/history.json", "DATA") then
+                local data = file.Read("kyber/grandexchange/history.json", "DATA")
+                self.History = util.JSONToTable(data) or {}
+            else
+                self.History = {}
+            end
+            
+            -- Clean up expired listings
+            self:CleanupExpiredListings()
+        end)
     end
     
     function KYBER.GrandExchange:SaveDatabase()
-        file.Write("kyber/grandexchange/listings.json", util.TableToJSON(self.Listings))
-        file.Write("kyber/grandexchange/history.json", util.TableToJSON(self.History))
+        KYBER.Optimization.SafeCall(function()
+            -- Create backups
+            if file.Exists("kyber/grandexchange/listings.json", "DATA") then
+                file.Write("kyber/grandexchange/listings.json.backup", file.Read("kyber/grandexchange/listings.json", "DATA"))
+            end
+            if file.Exists("kyber/grandexchange/history.json", "DATA") then
+                file.Write("kyber/grandexchange/history.json.backup", file.Read("kyber/grandexchange/history.json", "DATA"))
+            end
+            
+            file.Write("kyber/grandexchange/listings.json", util.TableToJSON(self.Listings))
+            file.Write("kyber/grandexchange/history.json", util.TableToJSON(self.History))
+        end)
     end
     
     -- Initialize
@@ -301,33 +327,33 @@ if SERVER then
     
     -- Networking
     net.Receive("Kyber_GE_ListItem", function(len, ply)
+        if IsRateLimited(ply, "ListItem", 2) then return end
+        
         local itemID = net.ReadString()
-        local quantity = net.ReadInt(16)
+        local amount = net.ReadInt(32)
         local price = net.ReadInt(32)
         
-        local success, result = KYBER.GrandExchange:CreateListing(ply, itemID, quantity, price)
-        
-        if success then
-            ply:ChatPrint("Item listed successfully!")
+        KYBER.Optimization.SafeCall(function()
+            local success, err = KYBER.GrandExchange:CreateListing(ply, itemID, amount, price)
             
-            -- Update all clients viewing the GE
-            KYBER.GrandExchange:BroadcastUpdate()
-        else
-            ply:ChatPrint("Failed to list item: " .. result)
-        end
+            if not success then
+                ply:ChatPrint("Failed to list item: " .. err)
+            end
+        end)
     end)
     
     net.Receive("Kyber_GE_BuyItem", function(len, ply)
+        if IsRateLimited(ply, "BuyItem", 1) then return end
+        
         local listingID = net.ReadString()
         
-        local success, result = KYBER.GrandExchange:BuyListing(ply, listingID)
-        
-        if success then
-            ply:ChatPrint("Purchase successful!")
-            KYBER.GrandExchange:BroadcastUpdate()
-        else
-            ply:ChatPrint("Purchase failed: " .. result)
-        end
+        KYBER.Optimization.SafeCall(function()
+            local success, err = KYBER.GrandExchange:BuyListing(ply, listingID)
+            
+            if not success then
+                ply:ChatPrint("Failed to purchase item: " .. err)
+            end
+        end)
     end)
     
     net.Receive("Kyber_GE_CancelListing", function(len, ply)
@@ -530,7 +556,7 @@ else -- CLIENT
             
             net.Start("Kyber_GE_ListItem")
             net.WriteString(itemID)
-            net.WriteInt(quantityEntry:GetValue(), 16)
+            net.WriteInt(quantityEntry:GetValue(), 32)
             net.WriteInt(priceEntry:GetValue(), 32)
             net.SendToServer()
         end
