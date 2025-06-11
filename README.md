@@ -54,9 +54,7 @@ Hutt Cartel
 
 📦 Installation (For Testers Only)
 
-Clone this repo into your garrysmod/gamemodes/ folder:
-
-git clone https://github.com/yourusername/kyber-roleplay.git
+when the full version does release you will be able to Clone this repo into your garrysmod/gamemodes/ folder:
 
 Rename the folder to kyber
 
