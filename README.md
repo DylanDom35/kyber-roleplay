@@ -20,8 +20,6 @@ Character System – Persistent identity, progression, and reputation
 
 Factions & Ranks – Customizable groups with unique hierarchies
 
-Force Lottery – Rare Force sensitivity unlocked through a backend draw
-
 Crafting & Gear – Deep itemization with recipes and stats
 
 Banking System – Personal accounts and faction treasuries
@@ -42,9 +40,9 @@ Imperial Remnant
 
 Rebel Alliance
 
-Jedi Order
+Jedi
 
-Sith Order
+Sith 
 
 Mandalorian Clans
 
