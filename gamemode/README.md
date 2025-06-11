@@ -34,11 +34,6 @@ A semi-serious Star Wars roleplay gamemode for Garry's Mod focused on deep chara
 
 ## Installation
 
-1. Clone this repository to your `garrysmod/gamemodes/` folder:
-```bash
-git clone https://github.com/yourusername/kyber-roleplay.git
-```
-
 2. Rename the folder to `kyber` if needed
 
 3. Select "Kyber Roleplay" from the gamemode list in your server
@@ -105,7 +100,7 @@ Most systems can be configured by modifying the `Config` tables in each module. 
 
 - **Issues**: Use GitHub issue tracker
 - **Documentation**: Check module comments
-- **Discord**: [Your Discord Server]
+- **Discord**: (https://discord.gg/wmXgN6t9RU)
 
 ## License
 
@@ -115,7 +110,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **Framework**: Kyber Development Team
 - **Inspiration**: SWTOR, MovieBattles II
-- **Community**: Our amazing roleplay community
+- **Community**: Our amazing roleplay community G-Realms
 
 ---
 
