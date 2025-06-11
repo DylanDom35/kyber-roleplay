@@ -100,7 +100,7 @@ Most systems can be configured by modifying the `Config` tables in each module. 
 
 - **Issues**: Use GitHub issue tracker
 - **Documentation**: Check module comments
-- **Discord**: [[Your Discord Server]](https://discord.gg/wmXgN6t9RU)
+- **Discord**: (https://discord.gg/wmXgN6t9RU)
 
 ## License
 
